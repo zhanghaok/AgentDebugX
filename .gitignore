@@ -34,3 +34,6 @@ update.md
 .playwright-cli
 .planning/
 local/
+# Local diagnosis service artifacts
+diagnosis/
+.run/

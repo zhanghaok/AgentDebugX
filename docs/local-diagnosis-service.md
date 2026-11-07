@@ -132,6 +132,45 @@ The script loads `dataagent/.local-dev/config/local.env` and maps
 excludes localhost from any proxy. Then open `http://127.0.0.1:7777/` for the
 console, or use the curl workflow below.
 
+### Local credentials file (`local.env`)
+
+The lifecycle script reads the detector LLM credentials from a shell-style
+env file. **It is not part of this repository; create it locally and never
+commit it.**
+
+```
+$DATAAGENT_HOME/.local-dev/config/local.env
+# default: ~/develop/dataagent/.local-dev/config/local.env
+```
+
+Override the location with `DATAAGENT_ENV_FILE=/path/to/local.env`. The script
+sources the file with `set -a`, so plain `KEY=value` lines are exported to the
+service process; shell quoting and `export` are allowed but not required.
+Minimum content for a working diagnosis:
+
+```bash
+# OpenAI-compatible endpoint root. If your gateway URL already ends in
+# /chat/completions, drop that suffix here: the client appends it.
+GTS_LLM_BASE_URL=https://your-llm-gateway.example.com/v1
+GTS_LLM_API_KEY=sk-replace-with-your-key
+
+# Optional. The script defaults to deepseek-flash; set this directly to pick
+# another model. The other GTS_*/AGUI_*/KNOWLEDGE_* entries in the dataagent
+# file are read but ignored by this service.
+AGENTDEBUG_LLM_MODEL=deepseek-flash
+```
+
+The service-native names also work directly, without a dataagent checkout:
+`AGENTDEBUG_LLM_BASE_URL`, `AGENTDEBUG_LLM_API_KEY`,
+`AGENTDEBUG_LLM_MODEL`. `OPENCODE_DB` defaults to
+`$DATAAGENT_HOME/.local-dev/runtime/opencode.db`. Without a usable base URL
+and key, `/healthz` reports `llm_configured: false` and diagnosis submissions
+return `503`; session browsing still works.
+
+Keep `local.env` outside the checkout (`.local-dev/` and `local.env` are
+git-ignored here only as a safety net) and rotate the key if it was ever
+copied into a tracked file.
+
 Manual smoke test:
 
 ```bash

@@ -27,6 +27,9 @@ debug_branches.jsonl
 .env
 .env.*
 !.env.example
+# Local credentials for the diagnosis service (never commit real keys)
+.local-dev/
+local.env
 
 paper.pdf
 data

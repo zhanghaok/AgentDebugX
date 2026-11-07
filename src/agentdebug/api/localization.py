@@ -190,6 +190,86 @@ FAILURE_MODE_ZH: Dict[str, Dict[str, Any]] = {
             '在工具契约中区分空结果与未完成结果。',
         ],
     },
+    # Data-scenario modes (P2, issue #3). Kept aligned with
+    # ``api/data_taxonomy.py``; ``assert_full_coverage()`` checks the whole set
+    # once the service has registered the data taxonomy.
+    'data.requirement_misread': {
+        'name_zh': '需求理解偏差',
+        'suggestion_templates_zh': [
+            '在执行前复述需求，并写明对指标、维度和范围的解释。',
+            '增加执行前检查清单，逐项核对用户要求的维度、指标和时间范围。',
+        ],
+    },
+    'data.metric_definition_error': {
+        'name_zh': '指标口径错误',
+        'suggestion_templates_zh': [
+            '编写表达式前先查阅项目知识中的指标定义。',
+            '把实际使用的公式与结果一并记录，便于和 spec 对照。',
+        ],
+    },
+    'data.wrong_table_or_field': {
+        'name_zh': '表或字段选错',
+        'suggestion_templates_zh': [
+            '使用表和字段前，先在数据目录中确认其含义。',
+            '把表/字段说明带入查询规划上下文。',
+        ],
+    },
+    'data.join_error': {
+        'name_zh': '关联条件错误',
+        'suggestion_templates_zh': [
+            '关联前先校验关联键的唯一性。',
+            '每次关联前后对比行数，发现膨胀或丢失立即停下检查。',
+        ],
+    },
+    'data.filter_or_time_range_error': {
+        'name_zh': '过滤或时间范围错误',
+        'suggestion_templates_zh': [
+            '执行前列出必需的过滤条件和时间边界。',
+            '在结果旁回显实际生效的时间范围。',
+        ],
+    },
+    'data.aggregation_grain_error': {
+        'name_zh': '聚合粒度错误',
+        'suggestion_templates_zh': [
+            '聚合前先声明目标粒度，并检查 GROUP BY 是否匹配。',
+            '把分子和分母分开计算，最后一步再做除法得到比率。',
+        ],
+    },
+    'data.knowledge_unused': {
+        'name_zh': '未使用已有知识',
+        'suggestion_templates_zh': [
+            '规划前先检索项目知识中的指标和表说明。',
+            '引用支撑当前口径的知识条目。',
+        ],
+    },
+    'data.result_unchecked': {
+        'name_zh': '结果未自查',
+        'suggestion_templates_zh': [
+            '交付前检查行数和量级是否合理。',
+            '结果为空时先检查过滤条件和时间范围，再给出结论。',
+        ],
+    },
+    'data.artifact_incomplete': {
+        'name_zh': '产物不完整',
+        'suggestion_templates_zh': [
+            '结束前逐项核对要求的产物是否齐全。',
+            '缺失的产物要显式说明，不要静默省略。',
+        ],
+    },
+    'environment.source_data_issue': {
+        'name_zh': '源数据缺失或异常',
+        'suggestion_templates_zh': [
+            '归咎查询前，先检查源表的新鲜度、分区覆盖和重复率。',
+            '把数据质量检查结果和查询结果一起记录。',
+        ],
+    },
+    'environment.data_range_insufficient': {
+        'name_zh': '数据覆盖范围不足',
+        'suggestion_templates_zh': [
+            '分析前对比用户要求的时间范围和源表实际覆盖范围。',
+            '显式报告覆盖缺口，不要外推。',
+        ],
+    },
 }
 
 

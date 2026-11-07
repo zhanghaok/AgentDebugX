@@ -53,6 +53,7 @@ include = [
     "src/agentdebug/diagnose/detect/rules/packs/*/manifest.json",
     "src/agentdebug/diagnose/component_manifests/**/*.json",
     "src/agentdebug/gui/config/*.json",
+    "src/agentdebug/api/static/**/*",
 ]
 
 [tool.poetry.dependencies]

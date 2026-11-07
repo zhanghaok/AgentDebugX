@@ -33,6 +33,8 @@ _TOOL_RESULT_STATUSES = ('completed', 'error')
 _USER = 'user'
 _ASSISTANT = 'assistant'
 _AGENT_STEP_PARTS = ('step-start', 'step-finish')
+_GOAL_MAX_CHARS = 2000
+_GOAL_FOLLOWUP_CHARS = 300
 
 
 def convert_session(session: SessionRecord) -> AgentTrajectory:
@@ -40,7 +42,7 @@ def convert_session(session: SessionRecord) -> AgentTrajectory:
     trajectory = AgentTrajectory(
         trace_id=session.session_id,
         task_id=session.project_id,
-        goal=session.title,
+        goal=_build_goal(session.messages),
         framework='opencode',
         metadata={
             'source': 'opencode_session',
@@ -53,6 +55,37 @@ def convert_session(session: SessionRecord) -> AgentTrajectory:
     for message_idx, message in enumerate(session.messages):
         step_index = _convert_message(trajectory, session, message, message_idx, step_index)
     return trajectory
+
+
+def _build_goal(messages: list) -> Optional[str]:
+    """Use the user's own words as the goal (issue #3, P3).
+
+    The session title is often auto-generated and loses constraints. The first
+    real user message is kept in full; later user turns are appended as
+    ``补充或修改要求 #n`` using their first 300 characters. Synthetic client
+    tool continuations are skipped. Returns ``None`` when the session has no
+    real user message.
+    """
+
+    user_texts = []
+    for message in messages:
+        if message.get('role') != _USER:
+            continue
+        text = _user_visible_text(message.get('data') or {})
+        if not text or is_synthetic_client_tool_continuation(text):
+            continue
+        user_texts.append(text)
+    if not user_texts:
+        return None
+    parts = [user_texts[0]]
+    for index, text in enumerate(user_texts[1:], start=1):
+        parts.append(
+            '补充或修改要求 #%d：%s' % (index, text[:_GOAL_FOLLOWUP_CHARS])
+        )
+    goal = '\n'.join(parts)
+    if len(goal) > _GOAL_MAX_CHARS:
+        goal = goal[:_GOAL_MAX_CHARS - 1] + '…'
+    return goal
 
 
 def trajectory_to_wire(trajectory: AgentTrajectory) -> Dict[str, Any]:

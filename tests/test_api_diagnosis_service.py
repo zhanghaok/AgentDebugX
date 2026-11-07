@@ -26,7 +26,7 @@ from agentdebug.api.sanitize import (
     unwrap_user_prompt,
     visible_text,
 )
-from agentdebug.api.service import LLMNotConfigured, ServiceConfig
+from agentdebug.api.service import LLMNotConfigured, ServiceConfig, config_from_env
 from agentdebug.schema import AgentTrajectory, DiagnosticReport, FailureFinding
 from agentdebug.schema.taxonomy import SEED_FAILURE_MODES
 
@@ -87,7 +87,9 @@ def test_converter_maps_parts_to_events_with_deterministic_ids():
     wire = trajectory_to_wire(trajectory)
 
     assert wire['trace_id'] == SESSION_ID
-    assert wire['goal'] == '演示会话'
+    # P3: the goal is the first real user message, not the (often generated)
+    # session title; the later synthetic client continuation is skipped.
+    assert wire['goal'] == '看一下这个数据'
     assert wire['framework'] == 'opencode'
     assert wire['task_id'] == 'prj_1'
     assert wire['metadata'] == {
@@ -122,6 +124,32 @@ def test_converter_maps_parts_to_events_with_deterministic_ids():
     assert call_metadata['callID'] == 'call_1'
 
 
+def test_converter_appends_follow_up_user_requirements_to_goal():
+    session = _session([
+        _user('msg_1', {'text': '第一个问题：查上周销量', 'content': []}),
+        _assistant('msg_2', [{'type': 'text', 'text': '好的。'}]),
+        _user('msg_3', {'text': '补充：只看华东地区', 'content': []}),
+    ])
+    goal = convert_session(session).goal
+    assert goal.startswith('第一个问题：查上周销量')
+    assert '补充或修改要求 #1：补充：只看华东地区' in goal
+    assert len(goal) <= 2000
+
+
+def test_config_from_env_reads_confidence_and_language():
+    config = config_from_env({
+        'AGENTDEBUG_MIN_CONFIDENCE': '0.7',
+        'AGENTDEBUG_LANGUAGE': 'EN',
+    })
+    assert config.min_confidence == 0.7
+    assert config.language == 'en'
+
+    fallback = config_from_env({'AGENTDEBUG_MIN_CONFIDENCE': 'not-a-number'})
+    assert fallback.min_confidence == 0.5
+    assert fallback.language == 'zh'
+    assert config_from_env({'AGENTDEBUG_MIN_CONFIDENCE': '2'}).min_confidence == 1.0
+
+
 def test_converter_keeps_finish_reason_for_step_parts():
     session = _session([_assistant('msg_1', [
         {'type': 'step-finish', 'finishReason': 'stop'},
@@ -134,7 +162,10 @@ def test_converter_keeps_finish_reason_for_step_parts():
 
 def test_localization_covers_every_seed_mode():
     assert_full_coverage()
-    assert len(FAILURE_MODE_ZH) == len(SEED_FAILURE_MODES)
+    # The data-scenario modes are registered by the service and translated
+    # alongside the OSS ones; do not require the global taxonomy to have been
+    # mutated just to run this pure test.
+    assert set(SEED_FAILURE_MODES) <= set(FAILURE_MODE_ZH)
     for mode_id, mode in SEED_FAILURE_MODES.items():
         wire = localize_failure_mode(mode)
         assert wire['name_zh']

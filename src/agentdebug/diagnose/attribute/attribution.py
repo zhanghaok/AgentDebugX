@@ -367,9 +367,14 @@ class AllAtOnceAttributor:
         save_full_generation: bool = False,
         extra_context: str = '',
         propose_corrected_action: bool = False,
+        system_prompt: Optional[str] = None,
     ) -> None:
         self.llm = llm
         self.fallback: Attributor = fallback or HeuristicAttributor()
+        # A caller may supply its own system prompt (the local DataAgent
+        # service uses a Chinese one). None keeps the historical prompts
+        # byte-identical.
+        self.system_prompt = system_prompt
         self.max_findings = max_findings
         self.max_tokens = max_tokens
         self.use_ground_truth_context = use_ground_truth_context
@@ -391,7 +396,7 @@ class AllAtOnceAttributor:
     ) -> AttributionResult:
         findings = findings or []
         prompt_user = self._render_prompt(trajectory, findings[: self.max_findings])
-        system_prompt = (
+        system_prompt = self.system_prompt or (
             _ATTR_SYSTEM_PROMPT_WITH_ACTION
             if self.propose_corrected_action
             else _ATTR_SYSTEM_PROMPT

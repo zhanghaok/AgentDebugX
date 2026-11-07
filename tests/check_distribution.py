@@ -8,6 +8,7 @@ from pathlib import Path
 REQUIRED_FILES = {
     'agentdebug/__init__.py',
     'agentdebug/py.typed',
+    'agentdebug/api/static/index.html',
     # GUI/CUA: the RCA main path, plus one file from each optional-dependency
     # subpackage, so a packaging regression that drops a whole layer is caught.
     'agentdebug/gui/__init__.py',

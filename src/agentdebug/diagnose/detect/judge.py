@@ -75,10 +75,21 @@ class LLMJudgeAnalyzer:
         context_builder: Optional[Any] = None,
         root_selector: Optional[RootSelector] = None,
         request_json: bool = False,
+        system_prompt: Optional[str] = None,
+        missing_confidence: float = 0.5,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
         self.max_evidence_chars = max_evidence_chars
+        # A caller may supply its own system prompt (the local DataAgent
+        # service uses a Chinese one). It must keep the ``{max_findings}``
+        # placeholder and escape any literal braces; the default prompt above
+        # does both and is used when this is None.
+        self.system_prompt = system_prompt
+        # Confidence assigned when the model omits the field. The historical
+        # behaviour is 0.5; the service lowers it to 0.3 so an omitted
+        # confidence cannot clear its 0.5 publication threshold.
+        self.missing_confidence = float(missing_confidence)
         # Both default to the historical behaviour, so an analyzer built the
         # way it always was renders and selects exactly as it always did.
         # `context_builder` is any object with `render_chunk(events, chunk)`;
@@ -156,7 +167,9 @@ class LLMJudgeAnalyzer:
         user = self._render_user_prompt(trajectory, chunk)
         # Inject the max_findings cap into the system prompt at format time so
         # we can tune it per-call without forking the prompt.
-        system = _SYSTEM_PROMPT.format(max_findings=self.max_findings_per_chunk)
+        system = (self.system_prompt or _SYSTEM_PROMPT).format(
+            max_findings=self.max_findings_per_chunk
+        )
         messages = [
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user},
@@ -200,7 +213,9 @@ class LLMJudgeAnalyzer:
                     event_id=self._coerce_str(raw.get('event_id')),
                     agent_name=self._coerce_str(raw.get('agent_name')),
                     step_index=self._coerce_int(raw.get('step_index')),
-                    confidence=self._coerce_float(raw.get('confidence'), default=0.5),
+                    confidence=self._coerce_float(
+                        raw.get('confidence'), default=self.missing_confidence
+                    ),
                     evidence=self._coerce_str_list(raw.get('evidence')),
                     suggestion=self._suggestion(failure_mode),
                     metadata={

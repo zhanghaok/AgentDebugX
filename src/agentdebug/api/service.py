@@ -17,16 +17,24 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from agentdebug.api.brief import render_brief
+from agentdebug.api.data_taxonomy import register_data_taxonomy
 from agentdebug.api.db_adapter.v2_adapter import (
     SessionNotFound,
     load_session,
     session_exists,
 )
+from agentdebug.api.diagnose import (
+    DEFAULT_MIN_CONFIDENCE,
+    ServiceAttributor,
+    ServiceJudge,
+    apply_root_cause,
+    normal_outcome_summary,
+    should_skip_attribution,
+)
 from agentdebug.api.localization import ZhReflexionSuggestion
 from agentdebug.api.opencode_converter import convert_session, trajectory_to_wire
+from agentdebug.api.outcome import extract_outcome_signals
 from agentdebug.api.report import report_to_wire
-from agentdebug.diagnose import LLMJudgeAnalyzer
-from agentdebug.diagnose.attribute import AllAtOnceAttributor
 from agentdebug.diagnose.pipeline import DiagnosePipeline
 from agentdebug.runtime import OpenAICompatClient
 
@@ -51,6 +59,11 @@ class ServiceConfig:
     api_key: str = ''
     model: str = DEFAULT_MODEL
     timeout: float = 180.0
+    #: Findings below this confidence stay in the report but never become the
+    #: root cause (issue #3, P4).
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE
+    #: ``zh`` selects the service prompts; ``en`` keeps the upstream ones.
+    language: str = 'zh'
 
 
 def config_from_env(environ: Optional[Dict[str, str]] = None) -> ServiceConfig:
@@ -64,7 +77,20 @@ def config_from_env(environ: Optional[Dict[str, str]] = None) -> ServiceConfig:
         api_key=env.get('AGENTDEBUG_LLM_API_KEY') or '',
         model=env.get('AGENTDEBUG_LLM_MODEL') or DEFAULT_MODEL,
         timeout=float(env.get('AGENTDEBUG_LLM_TIMEOUT') or 180.0),
+        min_confidence=_confidence_from_env(env),
+        language=(env.get('AGENTDEBUG_LANGUAGE') or 'zh').strip().lower() or 'zh',
     )
+
+
+def _confidence_from_env(env: Dict[str, str]) -> float:
+    raw = env.get('AGENTDEBUG_MIN_CONFIDENCE')
+    if raw is None or str(raw).strip() == '':
+        return DEFAULT_MIN_CONFIDENCE
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_CONFIDENCE
+    return min(1.0, max(0.0, value))
 
 
 def repo_root() -> str:
@@ -79,6 +105,11 @@ class DiagnosisService:
 
     def __init__(self, config: ServiceConfig):
         self.config = config
+        # The data-scenario taxonomy is a service concern: make the extra
+        # failure modes visible to the judge (and translatable) only when the
+        # local service actually runs. Idempotent, so repeated construction is
+        # safe.
+        register_data_taxonomy()
         self._entries: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._llm = self._build_llm()
@@ -164,16 +195,57 @@ class DiagnosisService:
         try:
             record = load_session(self.config.db_path, session_id)
             trajectory = convert_session(record)
-            pipeline = DiagnosePipeline(
-                detector=LLMJudgeAnalyzer(self._llm, max_tokens=8192, request_json=True),
-                attributor=AllAtOnceAttributor(self._llm, max_tokens=16000),
-                recoverer=ZhReflexionSuggestion(),
-            )
-            result = pipeline.run(trajectory)
+            signals = extract_outcome_signals(trajectory)
+            report = ServiceJudge(
+                self._llm,
+                language=self.config.language,
+                outcome_signals=signals,
+                max_tokens=8192,
+                request_json=True,
+            ).analyze(trajectory)
+
+            if should_skip_attribution(report, signals, self.config.min_confidence):
+                # A normal outcome with nothing credible to blame: skip the
+                # attributor call entirely instead of asking it to explain a
+                # failure that did not happen.
+                apply_root_cause(report, None, self.config.min_confidence)
+                report.summary = normal_outcome_summary(signals)
+                report.attribution = {
+                    'method': 'skipped',
+                    'elapsed_ms': 0,
+                    'hypotheses': [],
+                    'primary': None,
+                    'raw': {
+                        'skipped': True,
+                        'skip_reason': 'normal_outcome_no_credible_findings',
+                    },
+                }
+                report.recovery = {'proposal_count': 0, 'proposals': []}
+                report.metadata['attribution_skipped'] = True
+                report.metadata['skip_reason'] = 'normal_outcome_no_credible_findings'
+            else:
+                pipeline = DiagnosePipeline(
+                    detector=_PrecomputedDetector(report),
+                    attributor=ServiceAttributor(
+                        self._llm,
+                        language=self.config.language,
+                        outcome_signals=signals,
+                        min_confidence=self.config.min_confidence,
+                        max_tokens=16000,
+                    ),
+                    recoverer=ZhReflexionSuggestion(),
+                )
+                result = pipeline.run(trajectory)
+                report = result.report
+                # Must run after the pipeline: DiagnoseContext.build writes the
+                # attribution's blame into root_cause_* first, and P4 overrides
+                # that with the eligible-finding selector.
+                apply_root_cause(report, result.attribution, self.config.min_confidence)
+
             elapsed = time.monotonic() - started
             trajectory_wire = trajectory_to_wire(trajectory)
             report_wire = report_to_wire(
-                result.report,
+                report,
                 detector=entry['detector'],
                 attributor=entry['attributor'],
                 elapsed_seconds=elapsed,
@@ -244,6 +316,21 @@ class DiagnosisService:
             # retry transport errors before the attributor's own fallback kicks in.
             max_retries=3,
         )
+
+
+class _PrecomputedDetector:
+    """Detector stage that replays an already-computed report.
+
+    The service runs the judge first because P3 decides whether to skip
+    attribution based on the findings; the second pipeline pass then supplies
+    the report to attribute/recover without paying for detection twice.
+    """
+
+    def __init__(self, report: Any) -> None:
+        self.report = report
+
+    def analyze(self, trajectory: Any) -> Any:
+        return self.report
 
 
 def _processing_envelope(session_id: str, detector: str, attributor: str) -> Dict[str, Any]:

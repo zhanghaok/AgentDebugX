@@ -1,0 +1,2116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent 轨迹诊断</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --panel-soft: #f8fafc;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --brand: #2563eb;
+    --brand-strong: #1d4ed8;
+    --brand-soft: #eff6ff;
+    --green: #15803d;
+    --green-soft: #f0fdf4;
+    --green-border: #bbf7d0;
+    --red: #b91c1c;
+    --red-soft: #fef2f2;
+    --red-border: #fecaca;
+    --amber: #b45309;
+    --amber-soft: #fffbeb;
+    --amber-border: #fde68a;
+    --violet: #6d28d9;
+    --violet-soft: #f5f3ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  code, .mono { font-family: var(--mono); font-size: 12px; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); }
+  .empty-state {
+    padding: 22px 16px;
+    color: var(--muted);
+    text-align: center;
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+    background: var(--panel-soft);
+  }
+  .empty-state.small { padding: 14px 10px; font-size: 13px; }
+  .empty-state.error-text { color: var(--red); }
+  .app { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
+
+  /* ---- sidebar ---- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 20px 18px 14px; }
+  .brand-mark {
+    width: 38px; height: 38px; border-radius: 11px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff; font-weight: 800; font-size: 14px; letter-spacing: -0.03em;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
+  }
+  .brand-title { font-weight: 750; font-size: 15px; letter-spacing: -0.01em; }
+  .brand-subtitle { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .sidebar-tools { display: flex; gap: 8px; padding: 4px 14px 12px; }
+  .search {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel-soft);
+    padding: 0 10px;
+  }
+  .search:focus-within { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+  .search-icon { color: var(--faint); font-size: 17px; line-height: 1; }
+  .search input {
+    width: 100%; border: 0; outline: 0; background: transparent;
+    padding: 8px 0; color: var(--text); font-size: 13px;
+  }
+  .search input::placeholder { color: var(--faint); }
+  .icon-btn {
+    width: 34px; height: 34px; flex: 0 0 34px;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: var(--panel); color: var(--muted);
+    font-size: 17px; line-height: 1;
+  }
+  .icon-btn:hover { color: var(--brand); border-color: #bfdbfe; background: var(--brand-soft); }
+  .icon-btn:disabled { opacity: 0.55; cursor: wait; }
+  .list-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px 7px;
+    color: var(--faint); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .count {
+    min-width: 22px; padding: 1px 7px; border-radius: 999px;
+    background: var(--panel-soft); border: 1px solid var(--border);
+    color: var(--muted); font-family: var(--mono); font-size: 10px; text-align: center;
+  }
+  .session-list { flex: 1; overflow-y: auto; padding: 0 10px 12px; min-height: 0; }
+  .session-item {
+    width: 100%;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 11px 10px 10px;
+    margin: 0 0 4px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    text-align: left;
+    color: var(--text);
+  }
+  .session-item:hover { background: var(--panel-soft); border-color: var(--border); }
+  .session-item.active {
+    background: var(--brand-soft);
+    border-color: #bfdbfe;
+    box-shadow: inset 3px 0 0 var(--brand);
+  }
+  .session-item-title {
+    font-weight: 650; font-size: 13px; line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .session-item-meta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+  .session-item-time { margin-left: auto; color: var(--faint); font-family: var(--mono); font-size: 10px; }
+  .session-item-id {
+    color: var(--faint); font-size: 10px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sidebar-foot {
+    border-top: 1px solid var(--border);
+    padding: 12px 18px 14px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .service-status { display: flex; align-items: center; gap: 6px; min-height: 18px; flex-wrap: wrap; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; }
+  .status-dot.ok { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.13); }
+  .status-dot.warn { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15); }
+  .sep { color: var(--border-strong); }
+  .foot-note { margin-top: 6px; color: var(--faint); font-size: 10px; line-height: 1.5; }
+
+  /* ---- main ---- */
+  .main { min-width: 0; padding: 24px 30px 70px; }
+  .main > * { max-width: 1180px; margin-left: auto; margin-right: auto; }
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+  .topbar-text { min-width: 0; }
+  .eyebrow { color: var(--brand); font-size: 10px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
+  .topbar h1 { margin: 4px 0 5px; font-size: 23px; line-height: 1.3; letter-spacing: -0.02em; font-weight: 750; word-break: break-word; }
+  .topbar p { margin: 0; color: var(--muted); font-size: 13px; word-break: break-all; }
+  .topbar-actions { flex: 0 0 auto; padding-top: 5px; }
+  .primary-btn {
+    border: 1px solid var(--brand-strong);
+    border-radius: 10px;
+    background: var(--brand);
+    color: #fff;
+    padding: 9px 18px;
+    font-weight: 700;
+    font-size: 13px;
+    box-shadow: 0 5px 14px rgba(37, 99, 235, 0.2);
+  }
+  .primary-btn:hover:not(:disabled) { background: var(--brand-strong); }
+  .primary-btn:disabled { background: #cbd5e1; border-color: #cbd5e1; box-shadow: none; color: #f8fafc; cursor: not-allowed; }
+
+  .banner {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .banner.warn { background: var(--amber-soft); border-color: var(--amber-border); color: #78350f; }
+  .banner.error { background: var(--red-soft); border-color: var(--red-border); color: #7f1d1d; }
+  .banner code { background: rgba(120, 53, 15, 0.08); padding: 1px 4px; border-radius: 4px; }
+
+  .progress {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #f8fbff, var(--brand-soft));
+    padding: 13px 16px;
+    margin-bottom: 16px;
+  }
+  .spinner {
+    width: 17px; height: 17px; flex: 0 0 17px;
+    border: 2px solid #bfdbfe; border-top-color: var(--brand);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .progress-copy strong { font-size: 13px; }
+  .progress-copy span { color: var(--muted); font-size: 11px; }
+  .progress-elapsed { margin-left: auto; color: var(--brand); font-weight: 700; }
+  .loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 24px 6px; }
+
+  /* ---- workspace view tabs ---- */
+  .view-tabs {
+    position: sticky;
+    top: 10px;
+    z-index: 30;
+    width: 100%;
+    max-width: 1180px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 14px;
+    pointer-events: none;
+  }
+  .view-tabs-inner {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    padding: 5px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+    backdrop-filter: blur(8px);
+    pointer-events: auto;
+  }
+  .view-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .view-tab:hover { color: var(--text); background: var(--panel-soft); }
+  .view-tab.active {
+    color: var(--brand-strong);
+    background: var(--brand-soft);
+    border-color: #bfdbfe;
+  }
+  .tab-badge {
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel-soft);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+  }
+  .tab-badge.ok { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
+  .tab-badge.bad { background: var(--red-soft); border-color: var(--red-border); color: var(--red); }
+  .tab-badge.warn { background: var(--amber-soft); border-color: var(--amber-border); color: var(--amber); }
+  .report-placeholder { text-align: center; padding: 44px 24px; }
+  .report-placeholder h2 { margin: 5px 0 8px; font-size: 20px; letter-spacing: -0.02em; }
+  .report-placeholder p { max-width: 520px; margin: 0 auto 16px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+    min-width: 0;
+  }
+  .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+  .panel-heading h2 { margin: 0; font-size: 15px; font-weight: 750; letter-spacing: -0.01em; }
+  .panel-heading .mono { color: var(--faint); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+  .label, .section-label {
+    color: var(--faint); font-size: 10px; font-weight: 800;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    margin: 16px 0 6px;
+  }
+  .meta-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel-soft);
+    color: var(--muted);
+    padding: 1px 7px;
+    font-size: 10px; line-height: 1.65;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .badge.mono { font-family: var(--mono); font-size: 9.5px; }
+  .badge-blue { background: var(--brand-soft); border-color: #bfdbfe; color: var(--brand-strong); }
+  .badge-gray { background: var(--panel-soft); border-color: var(--border); color: var(--muted); }
+  .badge-green { background: var(--green-soft); border-color: var(--green-border); color: var(--green); }
+  .badge-red { background: var(--red-soft); border-color: var(--red-border); color: var(--red); }
+  .badge-amber { background: var(--amber-soft); border-color: var(--amber-border); color: var(--amber); }
+  .badge-violet { background: var(--violet-soft); border-color: #ddd6fe; color: var(--violet); }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 4px 0 10px; }
+  .stat-card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-soft); padding: 11px 13px; min-width: 0; }
+  .stat-value { font-family: var(--mono); font-size: 20px; font-weight: 750; line-height: 1.2; color: var(--text); }
+  .stat-label { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .kv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+  .kv { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .kv .k { color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .kv .v { font-size: 12px; word-break: break-all; }
+  .text-block {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    max-height: 340px;
+    overflow: auto;
+  }
+  .text-block.goal { max-height: 210px; }
+  .code-block {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px;
+    color: #334155;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    max-height: 260px;
+    overflow: auto;
+  }
+  .error-block { background: var(--red-soft); border-color: var(--red-border); color: #991b1b; }
+
+  /* Long tool/text payloads collapse to a one-line summary until opened. */
+  .content-details {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    overflow: hidden;
+  }
+  .content-details > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 10px;
+    color: var(--muted);
+    font-size: 11px;
+    list-style: none;
+    cursor: pointer;
+  }
+  .content-details > summary::-webkit-details-marker { display: none; }
+  .content-details > summary:hover { background: #f1f5f9; color: var(--brand); }
+  .content-preview {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+  .content-toggle {
+    flex: 0 0 auto;
+    color: var(--brand);
+    font-size: 10.5px;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+  .content-toggle .open-label { display: none; }
+  .content-toggle .chevron { display: inline-block; margin-left: 2px; transition: transform 0.15s; }
+  .content-details[open] .content-toggle .closed-label { display: none; }
+  .content-details[open] .content-toggle .open-label { display: inline; }
+  .content-details[open] .content-toggle .chevron { transform: rotate(180deg); }
+  .content-details[open] > summary .content-preview { display: none; }
+  .content-details > .code-block,
+  .content-details > .text-block {
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    max-height: 480px;
+  }
+  .content-details.error-details { border-color: var(--red-border); background: var(--red-soft); }
+  .content-details.error-details > summary:hover { background: #fee2e2; }
+  .timeline-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .timeline-actions { display: flex; gap: 5px; }
+  .ghost-btn {
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--muted);
+    padding: 2px 8px;
+    font-size: 10.5px;
+  }
+  .ghost-btn:hover { color: var(--brand); border-color: #bfdbfe; background: var(--brand-soft); }
+
+  /* ---- timeline ---- */
+  .timeline { position: relative; padding-left: 21px; }
+  .timeline:before {
+    content: "";
+    position: absolute; left: 5px; top: 8px; bottom: 8px;
+    width: 2px; background: var(--border);
+  }
+  .event { position: relative; margin-bottom: 12px; min-width: 0; }
+  .event:before {
+    content: "";
+    position: absolute; left: -20px; top: 14px;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--faint);
+    border: 2px solid var(--panel);
+    box-shadow: 0 0 0 1px var(--border-strong);
+  }
+  .event.user:before { background: var(--brand); }
+  .event.reasoning:before { background: #a78bfa; }
+  .event.tool-call:before, .event.tool-result:before { background: var(--violet); }
+  .event.failed:before { background: var(--red); }
+  .event-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 5px; }
+  .event-kind {
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    background: var(--panel-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .kind-user { color: var(--brand-strong); background: var(--brand-soft); border-color: #bfdbfe; }
+  .kind-reasoning { color: var(--violet); background: var(--violet-soft); border-color: #ddd6fe; }
+  .kind-tool-call, .kind-tool-result { color: var(--violet); background: var(--violet-soft); border-color: #ddd6fe; }
+  .event-step { color: var(--faint); font-size: 10px; }
+  .event-agent { margin-left: auto; color: var(--faint); font-size: 10px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+  .event.trace-root {
+    border-left: 3px solid var(--red);
+    padding-left: 10px;
+    background: linear-gradient(90deg, rgba(254, 242, 242, 0.9), transparent 55%);
+    border-radius: 2px 8px 8px 2px;
+  }
+  .event.trace-finding {
+    border-left: 3px solid var(--amber);
+    padding-left: 10px;
+    background: linear-gradient(90deg, rgba(255, 251, 235, 0.9), transparent 55%);
+    border-radius: 2px 8px 8px 2px;
+  }
+  .event.trace-attribution {
+    border-left: 3px solid var(--brand);
+    padding-left: 10px;
+    background: linear-gradient(90deg, rgba(239, 246, 255, 0.9), transparent 55%);
+    border-radius: 2px 8px 8px 2px;
+  }
+  .event.trace-flash { animation: traceFlash 1.5s ease; }
+  @keyframes traceFlash {
+    0% { background-color: #fef9c3; }
+    100% { background-color: transparent; }
+  }
+
+  /* ---- trace map ---- */
+  .trace-summary { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .trace-map {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fbfdff, #f8fafc);
+    padding: 12px 0 3px;
+  }
+  .trace-track { position: relative; height: 196px; width: 100%; margin: 0 auto; }
+  .trace-rail {
+    position: absolute; left: 3%; right: 3%; top: 100px;
+    height: 2px; border-radius: 999px;
+    background: linear-gradient(90deg, #dbeafe, #cbd5e1, #dbeafe);
+  }
+  .trace-lane-line {
+    position: absolute; left: 3%; right: 3%; height: 1px;
+    background: repeating-linear-gradient(90deg, #eef2f7 0 5px, transparent 5px 10px);
+  }
+  .trace-lane-line.lane-user { top: 40px; }
+  .trace-lane-line.lane-reasoning { top: 68px; }
+  .trace-lane-line.lane-tool-call { top: 132px; }
+  .trace-lane-line.lane-tool-result { top: 160px; }
+  .trace-node {
+    position: absolute;
+    width: 14px; height: 14px;
+    padding: 0;
+    transform: translate(-50%, -50%);
+    border: 2px solid var(--panel);
+    border-radius: 50%;
+    background: var(--faint);
+    box-shadow: 0 0 0 1px var(--border-strong);
+    cursor: pointer;
+    z-index: 2;
+  }
+  .trace-node:hover, .trace-node:focus-visible { z-index: 6; outline: 2px solid var(--brand-strong); outline-offset: 2px; }
+  .trace-node.user { background: var(--brand); }
+  .trace-node.reasoning { width: 10px; height: 10px; background: #a78bfa; }
+  .trace-node.assistant { background: #94a3b8; }
+  .trace-node.tool-call, .trace-node.tool-result { border-radius: 4px; background: var(--violet); }
+  .trace-node.failed {
+    background: var(--red);
+    box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.16), 0 0 0 5px rgba(185, 28, 28, 0.07);
+  }
+  .trace-node.is-finding {
+    box-shadow: 0 0 0 2px var(--amber-border), 0 0 0 5px rgba(245, 158, 11, 0.09);
+  }
+  .trace-node.is-attribution {
+    box-shadow: 0 0 0 2px #bfdbfe, 0 0 0 5px rgba(37, 99, 235, 0.1);
+  }
+  .trace-node.is-root {
+    width: 17px; height: 17px;
+    background: var(--red);
+    z-index: 4;
+    animation: tracePulse 2.4s infinite;
+  }
+  .trace-node.is-selected { outline: 2px solid var(--brand-strong); outline-offset: 3px; }
+  @keyframes tracePulse {
+    0%, 100% { box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(185, 28, 28, 0.28); }
+    50% { box-shadow: 0 0 0 2px #fff, 0 0 0 9px rgba(185, 28, 28, 0.08); }
+  }
+  .trace-flag {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1.5;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    pointer-events: none;
+  }
+  .trace-flag.root { background: var(--red-soft); border-color: var(--red-border); color: var(--red); }
+  .trace-flag.attribution { background: var(--brand-soft); border-color: #bfdbfe; color: var(--brand-strong); }
+  .trace-flag.finding { background: var(--amber-soft); border-color: var(--amber-border); color: var(--amber); }
+  .trace-flag.error { background: var(--red-soft); border-color: var(--red-border); color: var(--red); }
+  .trace-legend {
+    display: flex; align-items: center; gap: 6px 13px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .trace-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .trace-key { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); display: inline-block; }
+  .trace-key.user { background: var(--brand); }
+  .trace-key.reasoning { background: #a78bfa; }
+  .trace-key.tool { border-radius: 2px; background: var(--violet); }
+  .trace-key.error { background: var(--red); }
+  .trace-key.finding { background: var(--amber); }
+  .trace-key.root { background: var(--red); box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.18); }
+  .trace-key.attribution { background: var(--brand); box-shadow: 0 0 0 2px #bfdbfe; }
+  .trace-detail {
+    display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+    min-height: 33px;
+    margin-top: 9px;
+    padding: 7px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .trace-detail .mono { color: var(--faint); font-size: 10px; }
+  .trace-detail-copy {
+    flex-basis: 100%;
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.55;
+    word-break: break-word;
+  }
+
+  /* ---- report ---- */
+  .report-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 22px; }
+  .report-hero h2 { margin: 3px 0 6px; font-size: 21px; letter-spacing: -0.02em; }
+  .hero-summary { margin: 0; color: #475569; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+  .hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-top: 3px; }
+  .hero-side-item { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 10px; }
+  .verdict { border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+  .verdict-failed { background: var(--red-soft); border: 1px solid var(--red-border); color: var(--red); }
+  .verdict-normal { background: var(--green-soft); border: 1px solid var(--green-border); color: var(--green); }
+  .verdict-ambiguous { background: var(--amber-soft); border: 1px solid var(--amber-border); color: var(--amber); }
+  .verdict-unknown { background: var(--panel-soft); border: 1px solid var(--border); color: var(--muted); }
+  .hero-meta {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: 7px 18px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px; padding-top: 11px;
+  }
+  .meta-item { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .meta-item .k { color: var(--faint); font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .meta-item .v { color: #334155; font-size: 11px; word-break: break-all; }
+  .basis-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 11px; font-size: 11px; }
+  .signal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .signal-card { border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; background: var(--panel-soft); min-width: 0; }
+  .signal-card.signal-on { border-color: var(--amber-border); background: var(--amber-soft); }
+  .signal-card.signal-good { border-color: var(--green-border); background: var(--green-soft); }
+  .signal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 700; }
+  .signal-state { color: var(--faint); font-family: var(--mono); font-size: 9.5px; font-weight: 600; }
+  .signal-on .signal-state { color: var(--amber); }
+  .signal-good .signal-state { color: var(--green); }
+  .signal-detail { margin-top: 3px; color: var(--muted); font-size: 11px; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow: auto; }
+  .callout { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; font-size: 12px; margin-top: 11px; }
+  .callout.green { background: var(--green-soft); border-color: var(--green-border); color: #166534; }
+  .callout.blue { background: var(--brand-soft); border-color: #bfdbfe; color: #1e40af; }
+
+  .root-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+  .root-snippet { margin-top: 12px; }
+  .root-snippet .label { margin-top: 0; }
+
+  .finding-list { display: flex; flex-direction: column; gap: 11px; }
+  .finding-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+  .finding-card.below-threshold { border-style: dashed; background: #fcfcfd; }
+  .finding-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .finding-name { font-size: 14px; font-weight: 750; }
+  .confidence { font-family: var(--mono); font-size: 12px; font-weight: 750; color: var(--brand); white-space: nowrap; }
+  .finding-card.below-threshold .confidence { color: var(--amber); }
+  .confidence-bar { height: 4px; border-radius: 999px; background: #eef2f7; margin: 8px 0 9px; overflow: hidden; }
+  .confidence-bar span { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
+  .finding-card.below-threshold .confidence-bar span { background: var(--amber); }
+  .finding-meta { display: flex; flex-wrap: wrap; gap: 5px 12px; color: var(--faint); font-size: 10px; margin-bottom: 9px; }
+  .evidence { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .evidence-pre {
+    margin: 0; padding: 6px 8px;
+    background: var(--panel-soft); border: 1px solid var(--border); border-radius: 6px;
+    color: #475569; font-family: var(--mono); font-size: 11px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto;
+  }
+  .suggestion { color: #334155; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+  .details { margin-top: 10px; }
+  .details summary { cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 650; }
+  .details summary:hover { color: var(--brand); }
+  .details pre {
+    margin: 7px 0 0; padding: 9px 11px; background: var(--panel-soft);
+    border: 1px solid var(--border); border-radius: 7px;
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto;
+  }
+
+  .hypothesis-list { display: flex; flex-direction: column; gap: 8px; }
+  .hypothesis { border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; background: var(--panel-soft); }
+  .hypothesis-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 5px; }
+  .hypothesis-role { font-size: 10px; font-weight: 800; color: var(--violet); letter-spacing: 0.05em; }
+  .rationale { color: #334155; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+  .raw-line { margin-top: 9px; color: var(--faint); font-size: 10.5px; }
+
+  .proposal { border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--panel); }
+  .proposal + .proposal { margin-top: 9px; }
+  .proposal-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 4px; }
+  .proposal-index { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+  .proposal-summary { font-size: 12px; font-weight: 650; margin-bottom: 7px; }
+  .brief-block {
+    margin: 0; white-space: pre-wrap; word-break: break-word;
+    font-family: var(--mono); font-size: 11px; line-height: 1.65;
+    background: var(--panel-soft); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; max-height: 520px; overflow: auto;
+  }
+  .artifact-list { display: flex; flex-direction: column; gap: 6px; }
+  .artifact { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .artifact code { color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  @media (max-width: 980px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { position: static; height: auto; max-height: 46vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    .session-list { max-height: 28vh; }
+    .main { padding: 18px 16px 50px; }
+    .topbar { flex-direction: column; gap: 11px; }
+    .topbar-actions { padding-top: 0; }
+    .primary-btn { width: 100%; }
+  }
+  @media (max-width: 680px) {
+    .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kv-grid, .root-grid, .signal-grid { grid-template-columns: 1fr; }
+    .report-hero { grid-template-columns: 1fr; }
+    .hero-side { flex-direction: row; align-items: center; flex-wrap: wrap; }
+    .view-tabs { position: static; width: 100%; }
+    .view-tabs-inner { width: 100%; }
+    .view-tab { flex: 1; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">AT</div>
+      <div>
+        <div class="brand-title">Agent 轨迹诊断</div>
+        <div class="brand-subtitle">Trajectory Diagnosis</div>
+      </div>
+    </div>
+    <div class="sidebar-tools">
+      <label class="search">
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input id="session-search" type="search" placeholder="搜索标题 / 会话 ID" autocomplete="off" aria-label="搜索会话">
+      </label>
+      <button id="refresh-btn" class="icon-btn" type="button" title="刷新会话列表" aria-label="刷新会话列表">↻</button>
+    </div>
+    <div class="list-head"><span>会话</span><span id="session-count" class="count">0</span></div>
+    <div id="session-list" class="session-list">
+      <div class="empty-state small">正在加载会话…</div>
+    </div>
+    <div class="sidebar-foot">
+      <div id="service-status" class="service-status"><span class="status-dot"></span><span>检查服务状态…</span></div>
+      <div class="foot-note">只读 OpenCode SQLite · 诊断产物写入 diagnosis/</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-text">
+        <div class="eyebrow">DataAgent · 会话诊断</div>
+        <h1 id="session-title">选择一个 OpenCode 会话</h1>
+        <p id="session-subtitle">从左侧会话列表开始，选择后查看完整轨迹并启动诊断。</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="diagnose-btn" class="primary-btn" type="button" disabled>开始诊断</button>
+      </div>
+    </header>
+
+    <div id="llm-warning" class="banner warn hidden">
+      <strong>LLM 未配置</strong>：当前可以浏览会话，但无法启动诊断。
+      请联系管理员在服务端配置 LLM 连接信息后重启服务。
+    </div>
+    <div id="error-banner" class="banner error hidden" role="alert"></div>
+
+    <div id="progress" class="progress hidden" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      <div class="progress-copy">
+        <strong>诊断进行中</strong>
+        <span>LLM detector → all_at_once 归因 → 恢复建议</span>
+      </div>
+      <span id="progress-elapsed" class="progress-elapsed mono">0.0s</span>
+    </div>
+
+    <nav id="view-tabs" class="view-tabs hidden" role="tablist" aria-label="会话视图">
+      <div class="view-tabs-inner" role="presentation">
+        <button type="button" id="tab-report" class="view-tab" role="tab" aria-controls="report" aria-selected="false" data-view="report">
+          诊断报告 <span id="tab-report-badge" class="tab-badge">未诊断</span>
+        </button>
+        <button type="button" id="tab-trajectory" class="view-tab" role="tab" aria-controls="session-detail" aria-selected="true" data-view="trajectory">
+          会话轨迹 <span id="tab-trajectory-badge" class="tab-badge">—</span>
+        </button>
+      </div>
+    </nav>
+
+    <div id="session-loading" class="loading hidden"><span class="spinner" aria-hidden="true"></span>正在加载会话轨迹…</div>
+    <div id="session-detail" role="tabpanel" aria-labelledby="tab-trajectory" class="hidden"></div>
+    <div id="report" class="report hidden" role="tabpanel" aria-labelledby="tab-report"></div>
+  </main>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var BROWSER_PREFIX = window.location.pathname.indexOf('/api/agentdebug') === 0;
+  var API_BASE = BROWSER_PREFIX ? '/api/agentdebug/api/v1' : '/api/v1';
+  var HEALTH_PATH = BROWSER_PREFIX ? '/api/agentdebug/healthz' : '/healthz';
+
+  var initialSessionId = '';
+  try {
+    initialSessionId = new URLSearchParams(window.location.search).get('session') || '';
+  } catch (err) {
+    initialSessionId = '';
+  }
+
+  var state = {
+    sessions: [],
+    selectedId: null,
+    detail: null,
+    llmConfigured: false,
+    busy: false,
+    loadingSessions: false,
+    pendingSessionId: initialSessionId,
+    pollTimer: null,
+    elapsedTimer: null,
+    pollingRequest: false,
+    pollFailures: 0,
+    startedAt: 0,
+    activeView: 'trajectory',
+    viewPinned: false,
+    hasReport: false,
+    reportSignals: null,
+    traceEvents: [],
+    traceReport: null,
+    traceSelected: null
+  };
+
+  var els = {
+    search: document.getElementById('session-search'),
+    refresh: document.getElementById('refresh-btn'),
+    sessionCount: document.getElementById('session-count'),
+    sessionList: document.getElementById('session-list'),
+    serviceStatus: document.getElementById('service-status'),
+    sessionTitle: document.getElementById('session-title'),
+    sessionSubtitle: document.getElementById('session-subtitle'),
+    diagnose: document.getElementById('diagnose-btn'),
+    llmWarning: document.getElementById('llm-warning'),
+    errorBanner: document.getElementById('error-banner'),
+    progress: document.getElementById('progress'),
+    progressElapsed: document.getElementById('progress-elapsed'),
+    viewTabs: document.getElementById('view-tabs'),
+    tabReport: document.getElementById('tab-report'),
+    tabReportBadge: document.getElementById('tab-report-badge'),
+    tabTrajectory: document.getElementById('tab-trajectory'),
+    tabTrajectoryBadge: document.getElementById('tab-trajectory-badge'),
+    sessionLoading: document.getElementById('session-loading'),
+    sessionDetail: document.getElementById('session-detail'),
+    report: document.getElementById('report')
+  };
+
+  // ---- small helpers ----------------------------------------------------
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function textValue(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    try { return JSON.stringify(value, null, 2); } catch (err) { return String(value); }
+  }
+
+  function pretty(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') {
+      var trimmed = value.trim();
+      if (!trimmed) return '';
+      try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch (err) { return value; }
+    }
+    try { return JSON.stringify(value, null, 2); } catch (err) { return String(value); }
+  }
+
+  function truncate(text, max) {
+    text = String(text == null ? '' : text);
+    return text.length > max ? text.slice(0, max) + '…' : text;
+  }
+
+  function formatDate(value) {
+    if (value == null || value === '') return '—';
+    if (typeof value === 'string' && !/^\d+$/.test(value)) return value;
+    var number = Number(value);
+    if (!isFinite(number)) return String(value);
+    if (number < 1000000000000) number *= 1000;
+    var date = new Date(number);
+    if (isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('zh-CN', {
+      hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function formatDuration(seconds) {
+    if (seconds == null) return '—';
+    var value = Number(seconds);
+    if (!isFinite(value)) return String(seconds);
+    if (value < 60) return value.toFixed(2) + ' 秒';
+    return Math.floor(value / 60) + ' 分 ' + (value % 60).toFixed(0) + ' 秒';
+  }
+
+  function confidenceOf(finding) {
+    var value = Number(finding && finding.confidence);
+    return isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  }
+
+  function percent(value) {
+    return Math.round(confidenceOf({ confidence: value }) * 100) + '%';
+  }
+
+  function chip(tone, text) {
+    return '<span class="badge badge-' + tone + '">' + escapeHtml(text) + '</span>';
+  }
+
+  function kv(label, value, mono) {
+    return '<div class="kv"><span class="k">' + escapeHtml(label) + '</span>'
+      + '<span class="v' + (mono ? ' mono' : '') + '">' + escapeHtml(value == null || value === '' ? '—' : value) + '</span></div>';
+  }
+
+  function stat(value, label) {
+    return '<div class="stat-card"><div class="stat-value">' + escapeHtml(value) + '</div>'
+      + '<div class="stat-label">' + escapeHtml(label) + '</div></div>';
+  }
+
+  function panel(title, badgeHtml, body) {
+    return '<section class="panel"><div class="panel-heading"><h2>' + escapeHtml(title) + '</h2>'
+      + (badgeHtml || '') + '</div>' + body + '</section>';
+  }
+
+  function metaItem(label, value, mono) {
+    return '<div class="meta-item"><span class="k">' + escapeHtml(label) + '</span>'
+      + '<span class="v' + (mono ? ' mono' : '') + '">' + escapeHtml(value == null || value === '' ? '—' : value) + '</span></div>';
+  }
+
+  function verdictInfo(value, signals) {
+    if (value === 'failed') return { label: '失败', title: '发现失败', className: 'verdict-failed' };
+    if (value === 'normal') {
+      var recovered = signals && signals.recovered_tool_error;
+      return {
+        label: '正常',
+        title: recovered ? '正常结束（工具错误已恢复）' : '正常结束',
+        className: 'verdict-normal'
+      };
+    }
+    if (value === 'ambiguous') return { label: '待确认', title: '结果待确认', className: 'verdict-ambiguous' };
+    return { label: '已完成', title: '诊断完成', className: 'verdict-unknown' };
+  }
+
+  function rootKindInfo(value) {
+    if (value === 'agent') return { label: 'Agent 侧', className: 'badge-blue' };
+    if (value === 'environment') return { label: '环境 / 数据侧', className: 'badge-amber' };
+    if (value === 'none') return { label: '未定位', className: 'badge-gray' };
+    return { label: '未标注', className: 'badge-gray' };
+  }
+
+  // ---- transport / banner ----------------------------------------------
+
+  function fetchJson(path, options) {
+    return fetch(path, options).then(function (response) {
+      return response.text().then(function (raw) {
+        var payload = null;
+        try { payload = raw ? JSON.parse(raw) : null; } catch (err) { payload = null; }
+        if (!response.ok) {
+          var message = (payload && (payload.message || payload.error)) || ('HTTP ' + response.status);
+          var error = new Error(message);
+          error.status = response.status;
+          error.payload = payload;
+          throw error;
+        }
+        return payload;
+      });
+    });
+  }
+
+  function showError(message) {
+    els.errorBanner.textContent = message;
+    els.errorBanner.classList.remove('hidden');
+  }
+
+  function clearError() {
+    els.errorBanner.textContent = '';
+    els.errorBanner.classList.add('hidden');
+  }
+
+  function updateDiagnoseButton() {
+    var disabled = state.busy || !state.selectedId || !state.llmConfigured;
+    els.diagnose.disabled = disabled;
+    els.diagnose.textContent = state.busy ? '诊断进行中…' : '开始诊断';
+    if (!state.llmConfigured) {
+      els.diagnose.title = 'LLM 未配置';
+    } else if (!state.selectedId) {
+      els.diagnose.title = '请先选择会话';
+    } else if (state.busy) {
+      els.diagnose.title = '诊断正在进行';
+    } else {
+      els.diagnose.title = '';
+    }
+    updateReportTabBadge();
+  }
+
+  function updateReportTabBadge() {
+    var label = '未诊断';
+    var tone = '';
+    if (state.hasReport) {
+      var verdict = state.reportSignals && state.reportSignals.verdict;
+      if (verdict === 'failed') { label = '失败'; tone = 'bad'; }
+      else if (verdict === 'normal') { label = '正常'; tone = 'ok'; }
+      else if (verdict === 'ambiguous') { label = '待确认'; tone = 'warn'; }
+      else { label = '已生成'; }
+    } else if (state.busy) {
+      label = '诊断中';
+      tone = 'warn';
+    }
+    els.tabReportBadge.textContent = label;
+    els.tabReportBadge.className = 'tab-badge' + (tone ? ' ' + tone : '');
+  }
+
+  function renderReportPlaceholder() {
+    var busy = state.busy;
+    var action = '';
+    if (!busy && state.llmConfigured && state.selectedId) {
+      action = '<button type="button" class="primary-btn" data-start-diagnosis>开始诊断</button>';
+    }
+    els.report.innerHTML = '<section class="panel report-placeholder">'
+      + '<div class="eyebrow">诊断报告</div>'
+      + '<h2>' + (busy ? '诊断进行中…' : '尚未生成诊断报告') + '</h2>'
+      + '<p>' + (busy
+        ? 'LLM detector → all_at_once 归因 → 恢复建议。完成后报告会自动显示在这里。'
+        : '运行 LLM detector 与全量归因流水线，完成后可在这里查看结果信号、根因、检测发现和恢复建议。')
+      + '</p>' + action + '</section>';
+  }
+
+  function refreshReportPane() {
+    if (state.activeView === 'report' && !state.hasReport) renderReportPlaceholder();
+  }
+
+  function scrollWorkspaceTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function setActiveView(view, options) {
+    options = options || {};
+    state.activeView = view === 'report' ? 'report' : 'trajectory';
+    if (!state.detail) return;
+    var showReport = state.activeView === 'report';
+    els.report.classList.toggle('hidden', !showReport);
+    els.sessionDetail.classList.toggle('hidden', showReport);
+    els.tabReport.classList.toggle('active', showReport);
+    els.tabReport.setAttribute('aria-selected', showReport ? 'true' : 'false');
+    els.tabTrajectory.classList.toggle('active', !showReport);
+    els.tabTrajectory.setAttribute('aria-selected', showReport ? 'false' : 'true');
+    if (showReport && !state.hasReport) renderReportPlaceholder();
+    if (options.scroll !== false) scrollWorkspaceTop();
+  }
+
+  function clearReport() {
+    els.report.innerHTML = '';
+    state.hasReport = false;
+    state.reportSignals = null;
+    updateReportTabBadge();
+    if (state.activeView === 'report' && state.detail) {
+      renderReportPlaceholder();
+      els.report.classList.remove('hidden');
+    } else {
+      els.report.classList.add('hidden');
+    }
+    // Keep the trace map itself, but drop diagnosis marks and the selected node.
+    if (document.getElementById('trace-map')) {
+      state.traceSelected = null;
+      renderTraceMap(state.traceEvents, null);
+    }
+  }
+
+  // ---- health / sessions ------------------------------------------------
+
+  function loadHealth() {
+    fetchJson(HEALTH_PATH).then(function (health) {
+      state.llmConfigured = Boolean(health && health.llm_configured);
+      var dot = state.llmConfigured ? 'ok' : 'warn';
+      els.serviceStatus.innerHTML = '<span class="status-dot ' + dot + '"></span>'
+        + '<span>' + (state.llmConfigured ? 'LLM 已配置' : 'LLM 未配置') + '</span>'
+        + '<span class="sep">·</span><span class="mono">' + escapeHtml(health && health.model ? health.model : 'unknown') + '</span>';
+      els.serviceStatus.title = 'DB: ' + ((health && health.db) || '') + '\n模型: ' + ((health && health.model) || '');
+      if (!state.llmConfigured) {
+        els.llmWarning.classList.remove('hidden');
+      } else {
+        els.llmWarning.classList.add('hidden');
+      }
+      updateDiagnoseButton();
+    }).catch(function (err) {
+      els.serviceStatus.innerHTML = '<span class="status-dot warn"></span><span>健康检查失败</span>';
+      els.serviceStatus.title = err.message;
+    });
+  }
+
+  function loadSessions() {
+    if (state.loadingSessions) return;
+    state.loadingSessions = true;
+    els.refresh.disabled = true;
+    fetchJson(API_BASE + '/sessions?limit=200').then(function (data) {
+      state.sessions = Array.isArray(data && data.sessions) ? data.sessions : [];
+      renderSessionList();
+      clearError();
+      if (state.pendingSessionId) {
+        var requested = state.pendingSessionId;
+        state.pendingSessionId = null;
+        var exists = state.sessions.some(function (session) {
+          return String(session.session_id) === requested;
+        });
+        if (exists) {
+          selectSession(requested);
+        } else {
+          showError('URL 中的会话不存在：' + requested);
+        }
+      }
+    }).catch(function (err) {
+      els.sessionList.innerHTML = '<div class="empty-state small error-text">无法加载会话<br>'
+        + '<span class="mono">' + escapeHtml(err.message) + '</span></div>';
+      showError('加载会话失败：' + err.message);
+    }).finally(function () {
+      state.loadingSessions = false;
+      els.refresh.disabled = false;
+    });
+  }
+
+  function renderSessionList() {
+    var keyword = els.search.value.trim().toLowerCase();
+    els.sessionCount.textContent = String(state.sessions.length);
+    var filtered = state.sessions.filter(function (session) {
+      if (!keyword) return true;
+      return [session.title, session.session_id, session.slug, session.agent, session.project_id]
+        .some(function (value) {
+          return String(value == null ? '' : value).toLowerCase().indexOf(keyword) >= 0;
+        });
+    });
+    if (!state.sessions.length) {
+      els.sessionList.innerHTML = '<div class="empty-state small">数据库里还没有 OpenCode 会话。</div>';
+      return;
+    }
+    if (!filtered.length) {
+      els.sessionList.innerHTML = '<div class="empty-state small">没有匹配的会话。</div>';
+      return;
+    }
+    els.sessionList.innerHTML = filtered.map(function (session) {
+      var id = String(session.session_id || '');
+      var title = session.title ? String(session.title) : '未命名会话';
+      var count = Number(session.message_count || 0);
+      var agent = session.agent ? chip('blue', session.agent) : '';
+      return '<button type="button" class="session-item' + (id === state.selectedId ? ' active' : '')
+        + '" data-session-id="' + escapeHtml(id) + '">'
+        + '<span class="session-item-title">' + escapeHtml(title) + '</span>'
+        + '<span class="session-item-meta">' + agent + '<span>' + count + ' 条消息</span>'
+        + '<span class="session-item-time">' + escapeHtml(formatDate(session.updated_at || session.created_at)) + '</span></span>'
+        + '<span class="session-item-id mono">' + escapeHtml(id) + '</span>'
+        + '</button>';
+    }).join('');
+  }
+
+  // ---- session detail ---------------------------------------------------
+
+  function isUserEvent(event) {
+    var meta = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+    return String(meta.role || '') === 'user' || String(event.event_type || '') === 'PLAN';
+  }
+
+  function selectSession(sessionId) {
+    if (!sessionId) return;
+    if (state.busy && sessionId !== state.selectedId) {
+      showError('当前诊断仍在运行，请等待完成后再切换会话。');
+      return;
+    }
+    if (sessionId === state.selectedId && state.detail) return;
+
+    state.selectedId = sessionId;
+    state.detail = null;
+    state.activeView = 'trajectory';
+    state.viewPinned = false;
+    stopPolling();
+    clearReport();
+    clearError();
+    renderSessionList();
+    updateDiagnoseButton();
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set('session', sessionId);
+      window.history.replaceState(null, '', url);
+    } catch (err) {
+      // Deep links are a convenience; never block session loading on them.
+    }
+
+    els.sessionTitle.textContent = '加载会话中…';
+    els.sessionSubtitle.textContent = sessionId;
+    els.viewTabs.classList.add('hidden');
+    els.tabTrajectoryBadge.textContent = '—';
+    els.report.classList.add('hidden');
+    els.sessionDetail.classList.add('hidden');
+    els.sessionDetail.innerHTML = '';
+    els.sessionLoading.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+
+    fetchJson(API_BASE + '/sessions/' + encodeURIComponent(sessionId)).then(function (data) {
+      if (state.selectedId !== sessionId) return;
+      state.detail = data;
+      renderSessionDetail(data);
+      restoreDiagnosis(sessionId);
+    }).catch(function (err) {
+      if (state.selectedId !== sessionId) return;
+      els.sessionTitle.textContent = '会话加载失败';
+      els.sessionSubtitle.textContent = err.message;
+      showError('加载会话失败：' + err.message);
+    }).finally(function () {
+      if (state.selectedId === sessionId) els.sessionLoading.classList.add('hidden');
+    });
+  }
+
+  function renderSessionDetail(data) {
+    var session = data.session || {};
+    var trajectory = data.trajectory || {};
+    var events = Array.isArray(trajectory.events) ? trajectory.events : [];
+    var goal = trajectory.goal || '';
+    var title = session.title || (goal ? String(goal).slice(0, 80) : '未命名会话');
+    els.sessionTitle.textContent = title;
+    els.sessionSubtitle.textContent = [
+      session.agent || 'agent',
+      session.message_count != null ? session.message_count + ' 条消息' : null,
+      events.length + ' 个事件'
+    ].filter(Boolean).join(' · ');
+
+    var userCount = events.filter(isUserEvent).length;
+    var toolCount = events.filter(function (event) { return String(event.event_type || '') === 'TOOL_CALL'; }).length;
+    var errorCount = events.filter(function (event) { return Boolean(event && event.error); }).length;
+    var visibleEvents = events.filter(function (event) { return !isLifecycleEvent(event); });
+    var timeline = visibleEvents.map(eventHtml).filter(Boolean).join('');
+    var goalText = goal || '（未记录任务目标）';
+
+    state.traceSelected = null;
+    els.sessionDetail.innerHTML = '<section class="panel">'
+      + '<div class="panel-heading"><h2>会话概览</h2><span class="mono">' + escapeHtml(session.session_id || '') + '</span></div>'
+      + '<div class="meta-row">' + (session.agent ? chip('blue', session.agent) : '')
+      + (session.version ? chip('gray', 'v' + session.version) : '')
+      + (session.slug ? chip('gray', session.slug) : '') + '</div>'
+      + '<div class="stat-grid">' + stat(userCount, '用户消息') + stat(toolCount, '工具调用')
+      + stat(errorCount, '错误事件') + stat(events.length, '轨迹事件') + '</div>'
+      + '<div class="kv-grid">' + kv('项目 ID', session.project_id, true) + kv('工作目录', session.directory, true)
+      + kv('会话 ID', session.session_id, true) + kv('Agent', session.agent) + '</div>'
+      + '<div class="label">任务目标</div>' + textBlock(goalText, true, 'goal') + '</section>'
+      + '<section class="panel trace-panel"><div class="panel-heading"><h2>轨迹地图</h2>'
+      + '<div id="trace-map-summary" class="trace-summary"></div></div>'
+      + '<div id="trace-map" class="trace-map" role="group" aria-label="轨迹时间线可视化"></div>'
+      + '<div class="trace-legend">'
+      + '<span><i class="trace-key user"></i>用户</span>'
+      + '<span><i class="trace-key reasoning"></i>思考</span>'
+      + '<span><i class="trace-key tool"></i>工具</span>'
+      + '<span><i class="trace-key error"></i>失败</span>'
+      + '<span><i class="trace-key finding"></i>检测发现</span>'
+      + '<span><i class="trace-key root"></i>根因</span>'
+      + '<span><i class="trace-key attribution"></i>归因</span>'
+      + '</div>'
+      + '<div id="trace-detail" class="trace-detail">悬停节点查看事件；点击节点定位到下方轨迹。</div>'
+      + '</section>'
+      + '<section class="panel"><div class="panel-heading"><h2>会话轨迹</h2>'
+      + '<div class="timeline-head-right"><span class="muted" title="step-start / step-finish 已隐藏">'
+      + visibleEvents.length + ' 个事件 · 长内容默认折叠</span>'
+      + '<div class="timeline-actions">'
+      + '<button type="button" class="ghost-btn" data-timeline-action="expand">全部展开</button>'
+      + '<button type="button" class="ghost-btn" data-timeline-action="collapse">全部收起</button>'
+      + '</div></div></div>'
+      + '<div class="timeline">' + (timeline || '<div class="empty-state">会话没有可展示的事件。</div>') + '</div></section>';
+
+    els.tabTrajectoryBadge.textContent = visibleEvents.length + ' 事件';
+    els.viewTabs.classList.remove('hidden');
+    renderTraceMap(visibleEvents, null);
+    setActiveView('trajectory', { scroll: false });
+  }
+
+  function eventVisual(event) {
+    var meta = event && event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+    var partType = String(meta.part_type || '');
+    var eventType = String((event && event.event_type) || '');
+    var role = String(meta.role || (event && event.agent_name) || '');
+    var kind = 'assistant';
+    var label = '助手';
+    if (role === 'user' || eventType === 'PLAN') {
+      kind = 'user'; label = '用户';
+    } else if (partType === 'reasoning' || eventType === 'REFLECTION') {
+      kind = 'reasoning'; label = '思考';
+    } else if (eventType === 'TOOL_CALL') {
+      kind = 'tool-call'; label = '工具调用';
+    } else if (eventType === 'TOOL_RESULT') {
+      kind = 'tool-result'; label = '工具结果';
+    }
+    var status = String(meta.tool_status || '').toLowerCase();
+    var failed = Boolean(event && event.error)
+      || ['error', 'failed', 'failure', 'aborted', 'cancelled', 'canceled', 'timeout', 'timed_out'].indexOf(status) >= 0;
+    return {
+      meta: meta,
+      partType: partType,
+      eventType: eventType,
+      role: role,
+      kind: kind,
+      label: label,
+      failed: failed
+    };
+  }
+
+  function isLifecycleEvent(event) {
+    var partType = eventVisual(event).partType;
+    return partType === 'step-start' || partType === 'step-finish';
+  }
+
+  function eventHtml(event, index) {
+    if (!event || typeof event !== 'object') return '';
+    var visual = eventVisual(event);
+    if (visual.partType === 'step-start' || visual.partType === 'step-finish') return '';
+    var kind = visual.kind;
+    var failed = visual.failed;
+
+    var body;
+    if (kind === 'tool-call') {
+      body = codeBlock(event.input, false, true);
+    } else if (kind === 'tool-result') {
+      body = event.error ? codeBlock(event.error, true, true) : codeBlock(event.output, false, true);
+    } else {
+      body = textBlock(event.output != null ? event.output : event.input, true);
+    }
+
+    var toolBadge = visual.meta.tool ? '<span class="badge badge-violet">' + escapeHtml(visual.meta.tool) + '</span>' : '';
+    var agent = event.agent_name && event.agent_name !== visual.role
+      ? '<span class="event-agent">' + escapeHtml(event.agent_name) + '</span>' : '';
+    var eventId = event.event_id == null ? '' : String(event.event_id);
+
+    return '<article class="event ' + kind + (failed ? ' failed' : '') + '"'
+      + ' data-trace-index="' + index + '" data-event-id="' + escapeHtml(eventId) + '">'
+      + '<div class="event-head"><span class="event-kind kind-' + kind + '">' + visual.label + '</span>'
+      + '<span class="event-step mono">#' + escapeHtml(event.step_index == null ? '—' : event.step_index) + '</span>'
+      + toolBadge + (failed ? '<span class="badge badge-red">失败</span>' : '') + agent + '</div>'
+      + body + '</article>';
+  }
+
+  function traceReportIndex(report) {
+    var index = { rootId: null, attributionId: null, findings: {} };
+    if (!report) return index;
+    if (report.root_cause_event_id) index.rootId = String(report.root_cause_event_id);
+    (Array.isArray(report.findings) ? report.findings : []).forEach(function (finding) {
+      if (finding && finding.event_id) index.findings[String(finding.event_id)] = finding;
+    });
+    var primary = report.attribution && report.attribution.primary;
+    if (primary) {
+      var primaryId = primary.span_id || primary.event_id;
+      if (primaryId) index.attributionId = String(primaryId);
+    }
+    return index;
+  }
+
+  function traceMarker(eventId, failed, reportIndex) {
+    if (eventId && eventId === reportIndex.rootId) {
+      return { label: '根因', tone: 'red', flagClass: 'root' };
+    }
+    if (eventId && eventId === reportIndex.attributionId) {
+      return { label: '归因', tone: 'blue', flagClass: 'attribution' };
+    }
+    if (eventId && reportIndex.findings[eventId]) {
+      return { label: '发现', tone: 'amber', flagClass: 'finding' };
+    }
+    if (failed) {
+      return { label: '失败', tone: 'red', flagClass: 'error' };
+    }
+    return null;
+  }
+
+  function traceEventSnippet(event, visual) {
+    var text = '';
+    if (event.error) {
+      text = String(event.error);
+    } else if (visual.kind === 'tool-call') {
+      text = textValue(event.input);
+    } else {
+      text = textValue(event.output != null ? event.output : event.input);
+    }
+    return truncate(text.replace(/\s+/g, ' ').trim(), 180);
+  }
+
+  function traceEventTitle(event, visual, marker) {
+    var bits = ['#' + (event.step_index == null ? '—' : event.step_index), visual.label];
+    if (visual.meta.tool) bits.push(String(visual.meta.tool));
+    if (marker) bits.push(marker.label);
+    if (visual.failed) bits.push('失败');
+    var snippet = traceEventSnippet(event, visual);
+    if (snippet) bits.push(snippet);
+    return bits.join(' · ');
+  }
+
+  function traceDetailHint() {
+    return state.traceReport
+      ? '悬停节点查看事件；点击节点定位到下方轨迹。已标注检测发现、归因和根因。'
+      : '悬停节点查看事件；点击节点定位到下方轨迹。诊断后会标注发现、归因和根因。';
+  }
+
+  function traceSummary(report, errorCount) {
+    var html = chip('gray', state.traceEvents.length + ' 事件');
+    if (errorCount) html += chip('red', errorCount + ' 失败');
+    var findingCount = report && Array.isArray(report.findings) ? report.findings.length : 0;
+    if (findingCount) html += chip('amber', findingCount + ' 发现');
+    if (report) {
+      if (report.root_cause_event_id) {
+        html += chip('red', '根因已定位');
+      } else if (report.attribution && report.attribution.raw && report.attribution.raw.no_failure) {
+        html += chip('green', '已恢复 · 无根因');
+      } else {
+        html += chip('green', '无根因');
+      }
+    } else {
+      html += chip('gray', '未诊断');
+    }
+    return html;
+  }
+
+  function renderTraceMap(events, report) {
+    state.traceEvents = Array.isArray(events) ? events : [];
+    state.traceReport = report || null;
+    var map = document.getElementById('trace-map');
+    var summary = document.getElementById('trace-map-summary');
+    var detail = document.getElementById('trace-detail');
+    if (!map) return;
+    if (!state.traceEvents.length) {
+      map.innerHTML = '<div class="empty-state small">没有可展示的轨迹事件。</div>';
+      if (summary) summary.innerHTML = '';
+      if (detail) detail.textContent = '没有可展示的事件。';
+      return;
+    }
+
+    var reportIndex = traceReportIndex(report);
+    var errorCount = 0;
+    var nodes = state.traceEvents.map(function (event, index) {
+      var visual = eventVisual(event);
+      if (visual.failed) errorCount += 1;
+      var eventId = event.event_id == null ? '' : String(event.event_id);
+      var marker = traceMarker(eventId, visual.failed, reportIndex);
+      var isRoot = Boolean(eventId && eventId === reportIndex.rootId);
+      var isAttribution = Boolean(eventId && eventId === reportIndex.attributionId);
+      var isFinding = Boolean(eventId && reportIndex.findings[eventId]);
+      var classes = 'trace-node ' + visual.kind + (visual.failed ? ' failed' : '')
+        + (isFinding ? ' is-finding' : '')
+        + (isAttribution ? ' is-attribution' : '')
+        + (isRoot ? ' is-root' : '');
+      var laneTop = {
+        user: 40,
+        reasoning: 68,
+        assistant: 100,
+        'tool-call': 132,
+        'tool-result': 160
+      }[visual.kind] || 100;
+      var percentX = state.traceEvents.length === 1
+        ? 50
+        : 4 + (index / (state.traceEvents.length - 1)) * 92;
+      var flag = marker
+        ? '<span class="trace-flag ' + marker.flagClass + '">' + escapeHtml(marker.label)
+          + (event.step_index == null ? '' : ' #' + escapeHtml(event.step_index)) + '</span>'
+        : '';
+      var title = traceEventTitle(event, visual, marker);
+      return '<button type="button" class="' + classes
+        + (state.traceSelected === index ? ' is-selected' : '') + '"'
+        + ' style="left:' + percentX.toFixed(3) + '%;top:' + laneTop + 'px"'
+        + ' data-trace-index="' + index + '"'
+        + ' title="' + escapeHtml(title) + '"'
+        + ' aria-label="' + escapeHtml(title) + '">'
+        + flag + '</button>';
+    }).join('');
+
+    var minWidth = Math.max(760, (state.traceEvents.length - 1) * 26 + 120);
+    map.innerHTML = '<div class="trace-track" style="min-width:' + minWidth + 'px">'
+      + '<div class="trace-rail"></div>'
+      + '<div class="trace-lane-line lane-user"></div>'
+      + '<div class="trace-lane-line lane-reasoning"></div>'
+      + '<div class="trace-lane-line lane-tool-call"></div>'
+      + '<div class="trace-lane-line lane-tool-result"></div>'
+      + nodes + '</div>';
+    if (summary) summary.innerHTML = traceSummary(report, errorCount);
+    if (detail) detail.textContent = traceDetailHint();
+    applyTrajectoryMarks(report);
+  }
+
+  function updateTraceDetail(index) {
+    var detail = document.getElementById('trace-detail');
+    var event = state.traceEvents[index];
+    if (!detail || !event) return;
+    var visual = eventVisual(event);
+    var eventId = event.event_id == null ? '' : String(event.event_id);
+    var marker = traceMarker(eventId, visual.failed, traceReportIndex(state.traceReport));
+    var html = chip(visual.failed ? 'red' : (visual.kind === 'user' ? 'blue' : 'gray'), visual.label);
+    html += '<span class="mono">#' + escapeHtml(event.step_index == null ? '—' : event.step_index) + '</span>';
+    if (visual.meta.tool) html += chip('violet', String(visual.meta.tool));
+    if (marker) html += chip(marker.tone, marker.label);
+    var snippet = traceEventSnippet(event, visual);
+    if (snippet) html += '<span class="trace-detail-copy">' + escapeHtml(snippet) + '</span>';
+    detail.innerHTML = html;
+  }
+
+  function resetTraceDetail() {
+    var detail = document.getElementById('trace-detail');
+    if (detail) detail.textContent = traceDetailHint();
+  }
+
+  function focusTraceEvent(index) {
+    state.traceSelected = index;
+    els.sessionDetail.querySelectorAll('.trace-node').forEach(function (node) {
+      node.classList.toggle('is-selected', Number(node.getAttribute('data-trace-index')) === index);
+    });
+    updateTraceDetail(index);
+    var target = els.sessionDetail.querySelector('.event[data-trace-index="' + index + '"]');
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.remove('trace-flash');
+    void target.offsetWidth;
+    target.classList.add('trace-flash');
+    window.setTimeout(function () { target.classList.remove('trace-flash'); }, 1600);
+  }
+
+  function applyTrajectoryMarks(report) {
+    var reportIndex = traceReportIndex(report);
+    els.sessionDetail.querySelectorAll('.event[data-trace-index]').forEach(function (article) {
+      article.classList.remove('trace-root', 'trace-finding', 'trace-attribution');
+      article.querySelectorAll('.trajectory-mark').forEach(function (badge) { badge.remove(); });
+      if (!report) return;
+      var eventId = article.getAttribute('data-event-id');
+      var head = article.querySelector('.event-head');
+      var add = function (className, badgeClass, text) {
+        article.classList.add(className);
+        if (head) {
+          head.insertAdjacentHTML('beforeend', '<span class="badge ' + badgeClass
+            + ' trajectory-mark">' + escapeHtml(text) + '</span>');
+        }
+      };
+      if (eventId && eventId === reportIndex.rootId) {
+        add('trace-root', 'badge-red', '根因');
+      } else if (eventId && reportIndex.findings[eventId]) {
+        var confidence = confidenceOf(reportIndex.findings[eventId]);
+        add('trace-finding', 'badge-amber', '发现 ' + Math.round(confidence * 100) + '%');
+      }
+      if (eventId && eventId === reportIndex.attributionId) {
+        add('trace-attribution', 'badge-blue', '归因');
+      }
+    });
+  }
+
+  function isLongContent(text, threshold, maxLines) {
+    if (!text) return false;
+    if (text.length > threshold) return true;
+    return text.split('\n').length > maxLines;
+  }
+
+  function oneLinePreview(text, maxChars) {
+    var collapsed = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    return collapsed.length > maxChars ? collapsed.slice(0, maxChars) + '…' : collapsed;
+  }
+
+  function collapsibleBlock(text, blockHtml, options) {
+    options = options || {};
+    var threshold = options.threshold || 320;
+    var maxLines = options.maxLines || 8;
+    if (!isLongContent(text, threshold, maxLines)) return blockHtml;
+    var label = options.label || '展开全文';
+    return '<details class="content-details' + (options.error ? ' error-details' : '') + '">'
+      + '<summary><span class="content-preview">'
+      + escapeHtml(oneLinePreview(text, options.previewChars || 180)) + '</span>'
+      + '<span class="content-toggle"><span class="closed-label">' + label + '</span>'
+      + '<span class="open-label">收起</span><span class="chevron">▾</span></span></summary>'
+      + blockHtml + '</details>';
+  }
+
+  function textBlock(value, collapsible, extraClass) {
+    var text = textValue(value);
+    var block = '<div class="text-block' + (text ? '' : ' muted')
+      + (extraClass ? ' ' + extraClass : '') + '">'
+      + (text ? escapeHtml(text) : '（空）') + '</div>';
+    if (!collapsible) return block;
+    return collapsibleBlock(text, block, { threshold: 480, maxLines: 10, previewChars: 220 });
+  }
+
+  function codeBlock(value, isError, collapsible) {
+    var text = pretty(value);
+    var classes = 'code-block' + (isError ? ' error-block' : '');
+    var block = '<pre class="' + classes + '">'
+      + (text ? escapeHtml(text) : '<span class="muted">（空）</span>') + '</pre>';
+    if (!collapsible) return block;
+    return collapsibleBlock(text, block, {
+      threshold: 260,
+      maxLines: 6,
+      previewChars: 160,
+      error: isError,
+      label: '展开'
+    });
+  }
+
+  // ---- diagnosis lifecycle ---------------------------------------------
+
+  function showProgress() {
+    els.progress.classList.remove('hidden');
+    state.startedAt = Date.now();
+    els.progressElapsed.textContent = '0.0s';
+    if (state.elapsedTimer) clearInterval(state.elapsedTimer);
+    state.elapsedTimer = setInterval(function () {
+      els.progressElapsed.textContent = ((Date.now() - state.startedAt) / 1000).toFixed(1) + 's';
+    }, 200);
+  }
+
+  function restoreDiagnosis(sessionId) {
+    fetchJson(API_BASE + '/diagnose/' + encodeURIComponent(sessionId)).then(function (envelope) {
+      if (state.selectedId !== sessionId || !envelope) return;
+      if (envelope.status === 'done') {
+        clearError();
+        renderReport(envelope, false);
+      } else if (envelope.status === 'processing') {
+        state.busy = true;
+        showProgress();
+        updateDiagnoseButton();
+        refreshReportPane();
+        pollDiagnosis(sessionId);
+      } else if (envelope.status === 'failed') {
+        showError('上次诊断失败：' + (envelope.error || '未知错误'));
+        refreshReportPane();
+      }
+    }).catch(function (err) {
+      // 404 simply means this session has no in-memory run yet.
+      if (err.status !== 404) console.warn('restore diagnosis failed', err);
+    });
+  }
+
+  function startDiagnosis() {
+    if (!state.selectedId || state.busy) return;
+    if (!state.llmConfigured) {
+      showError('LLM 未配置，无法启动诊断。');
+      return;
+    }
+    var sessionId = state.selectedId;
+    clearError();
+    clearReport();
+    state.viewPinned = false;
+    state.busy = true;
+    updateDiagnoseButton();
+    showProgress();
+    refreshReportPane();
+
+    fetchJson(API_BASE + '/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, detector: 'llm', attributor: 'all_at_once' })
+    }).then(function () {
+      pollDiagnosis(sessionId);
+    }).catch(function (err) {
+      stopPolling();
+      state.busy = false;
+      els.progress.classList.add('hidden');
+      updateDiagnoseButton();
+      if (err.status === 503) {
+        showError('LLM 未配置或不可用：' + err.message);
+      } else {
+        showError('启动诊断失败：' + err.message);
+      }
+      refreshReportPane();
+    });
+  }
+
+  function pollDiagnosis(sessionId) {
+    // Replace only the poll interval; the elapsed timer started by
+    // showProgress() must keep running.
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+    }
+    state.pollFailures = 0;
+    var check = function () {
+      if (state.selectedId !== sessionId) {
+        stopPolling();
+        return;
+      }
+      if (state.pollingRequest) return;
+      state.pollingRequest = true;
+      fetchJson(API_BASE + '/diagnose/' + encodeURIComponent(sessionId)).then(function (envelope) {
+        if (state.selectedId !== sessionId) return;
+        if (envelope && envelope.status === 'processing') {
+          state.busy = true;
+          updateDiagnoseButton();
+          return;
+        }
+        stopPolling();
+        state.busy = false;
+        els.progress.classList.add('hidden');
+        updateDiagnoseButton();
+        if (envelope && envelope.status === 'done') {
+          renderReport(envelope);
+        } else if (envelope && envelope.status === 'failed') {
+          showError('诊断失败：' + (envelope.error || '未知错误'));
+          refreshReportPane();
+        } else {
+          showError('诊断状态未知：' + String(envelope && envelope.status));
+          refreshReportPane();
+        }
+      }).catch(function (err) {
+        state.pollFailures += 1;
+        if (state.pollFailures >= 5) {
+          stopPolling();
+          state.busy = false;
+          els.progress.classList.add('hidden');
+          updateDiagnoseButton();
+          showError('查询诊断状态失败：' + err.message);
+          refreshReportPane();
+        }
+      }).finally(function () {
+        state.pollingRequest = false;
+      });
+    };
+    check();
+    state.pollTimer = setInterval(check, 1500);
+  }
+
+  function stopPolling() {
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+    }
+    if (state.elapsedTimer) {
+      clearInterval(state.elapsedTimer);
+      state.elapsedTimer = null;
+    }
+    state.pollingRequest = false;
+  }
+
+  // ---- report rendering -------------------------------------------------
+
+  function signalCard(name, present, detail, tone) {
+    var cardClass = present ? (tone === 'good' ? 'signal-good' : 'signal-on') : 'signal-off';
+    return '<div class="signal-card ' + cardClass + '">'
+      + '<div class="signal-head"><span>' + escapeHtml(name) + '</span>'
+      + '<span class="signal-state">' + (present ? '触发' : '未触发') + '</span></div>'
+      + '<div class="signal-detail">' + escapeHtml(detail) + '</div></div>';
+  }
+
+  function eventSnippet(event) {
+    if (!event) return '';
+    var meta = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+    if (event.error) return truncate(event.error, 500);
+    if (event.event_type === 'TOOL_CALL') {
+      return truncate((meta.tool || 'tool') + ' ' + pretty(event.input), 500);
+    }
+    if (event.event_type === 'TOOL_RESULT') {
+      return truncate((meta.tool || 'tool') + ' → ' + pretty(event.output), 500);
+    }
+    return truncate(textValue(event.output != null ? event.output : event.input), 500);
+  }
+
+  function renderReport(envelope, shouldScroll) {
+    var data = envelope.data || {};
+    var report = data.report || {};
+    var trajectory = data.trajectory || (state.detail && state.detail.trajectory) || {};
+    var events = Array.isArray(trajectory.events) ? trajectory.events : [];
+    var storedAt = envelope.stored_at || {};
+    var brief = data.brief || '';
+    var metadata = report.metadata || {};
+    var signals = metadata.outcome_signals || null;
+    var verdict = verdictInfo(signals && signals.verdict, signals);
+    var rootKind = rootKindInfo(metadata.root_cause_kind);
+    var findings = Array.isArray(report.findings) ? report.findings.slice() : [];
+    var eventMap = {};
+    events.forEach(function (event) {
+      if (event && event.event_id) eventMap[event.event_id] = event;
+    });
+    findings.sort(function (a, b) { return confidenceOf(b) - confidenceOf(a); });
+
+    var analyzed = [metadata.analyzer, metadata.model].filter(Boolean).join(' · ');
+    var html = '<section class="panel report-hero">'
+      + '<div><div class="eyebrow">诊断报告</div><h2>' + escapeHtml(verdict.title) + '</h2>'
+      + '<p class="hero-summary">' + escapeHtml(report.summary || '诊断完成，但报告没有摘要。') + '</p></div>'
+      + '<div class="hero-side"><span class="verdict ' + verdict.className + '">' + verdict.label + '</span>'
+      + '<div class="hero-side-item"><span>根因类型</span><span class="badge ' + rootKind.className + '">' + rootKind.label + '</span></div>'
+      + (metadata.attribution_skipped ? '<span class="badge badge-green">归因已跳过</span>' : '')
+      + '</div>'
+      + '<div class="hero-meta">'
+      + metaItem('报告 ID', report.report_id, true)
+      + metaItem('生成时间', report.generated_at)
+      + metaItem('检测 / 归因', [metadata.detector, metadata.attributor].filter(Boolean).join(' → '))
+      + metaItem('耗时', formatDuration(metadata.elapsed_seconds))
+      + metaItem('分析器', analyzed)
+      + '</div></section>';
+
+    html += renderOutcomeSection(signals, metadata);
+    html += renderRootSection(report, metadata, eventMap);
+    html += renderFindingsSection(findings);
+    html += renderAttributionSection(report.attribution, metadata);
+    html += renderRecoverySection(report.recovery);
+
+    if (Array.isArray(report.suggestions) && report.suggestions.length) {
+      html += panel('总体建议', '<span class="badge badge-gray">' + report.suggestions.length + ' 条</span>',
+        '<ul class="evidence">' + report.suggestions.map(function (suggestion) {
+          return '<li><div class="suggestion">' + escapeHtml(suggestion) + '</div></li>';
+        }).join('') + '</ul>');
+    }
+    if (brief) {
+      html += '<section class="panel"><div class="panel-heading"><h2>诊断简报</h2>'
+        + '<span class="badge badge-gray">Markdown</span></div>'
+        + '<details class="details"><summary>展开完整简报</summary>'
+        + '<pre class="brief-block">' + escapeHtml(brief) + '</pre></details></section>';
+    }
+    var artifactEntries = Object.keys(storedAt).filter(function (key) {
+      return typeof storedAt[key] === 'string';
+    });
+    if (artifactEntries.length) {
+      html += panel('产物文件', '', '<div class="artifact-list">' + artifactEntries.map(function (key) {
+        return '<div class="artifact"><span class="badge badge-gray">' + escapeHtml(key) + '</span>'
+          + '<code>' + escapeHtml(storedAt[key]) + '</code></div>';
+      }).join('') + '</div>');
+    }
+
+    els.report.innerHTML = html;
+    state.hasReport = true;
+    state.reportSignals = signals;
+    updateReportTabBadge();
+    // Mirror the diagnosis onto the trajectory map and the detailed timeline.
+    renderTraceMap(events.filter(function (event) {
+      return !isLifecycleEvent(event);
+    }), report);
+    // Respect a manual pane choice made while the diagnosis was still loading;
+    // otherwise surface the fresh report.
+    if (!(state.viewPinned && state.activeView === 'trajectory')) {
+      setActiveView('report', { scroll: shouldScroll !== false });
+    }
+  }
+
+  function renderOutcomeSection(signals, metadata) {
+    if (!signals) {
+      return panel('结果信号', '<span class="badge badge-gray">未提供</span>',
+        '<div class="empty-state">本次报告没有确定性结果信号（可能来自旧版产物）。</div>');
+    }
+    var basis = Array.isArray(signals.basis) ? signals.basis : [];
+    var basisLabels = {
+      user_rejection: '用户否定',
+      trailing_tool_error: '结尾工具报错',
+      recovered_tool_error: '已恢复工具错误',
+      empty_result: '空结果',
+      no_wrapup: '缺少收尾',
+      normal_end: '正常结束'
+    };
+    var basisChips = basis.length ? basis.map(function (item) {
+      return chip('blue', basisLabels[item] || item);
+    }).join('') : '<span class="badge badge-gray">无</span>';
+
+    var rejection = signals.user_rejection || {};
+    var positions = Array.isArray(rejection.positions) ? rejection.positions : [];
+    var rejectionDetail = positions.length
+      ? positions.map(function (item) {
+          return '「' + (item.term || '') + '」' + (item.text ? ' ' + item.text : '');
+        }).join('；')
+      : '未检测到用户否定或重跑要求';
+
+    var trailing = signals.trailing_tool_error;
+    var trailingDetail = trailing
+      ? [trailing.tool, trailing.status, trailing.error].filter(Boolean).join(' · ')
+      : '最终回答前没有未恢复的工具调用';
+
+    var recovered = signals.recovered_tool_error;
+    var recoveredDetail = recovered
+      ? [recovered.tool, recovered.status, recovered.error].filter(Boolean).join(' · ')
+        + (recovered.recovered_by_tool
+          ? '；后续 ' + recovered.recovered_by_tool + ' 调用成功'
+          : '；后续工具调用成功')
+      : '';
+
+    var empty = signals.empty_result;
+    var emptyDetail = empty
+      ? 'SQL：' + (empty.sql || '—') + '\n结果：' + (empty.result || '—')
+      : '没有检测到空结果';
+
+    var noWrapup = signals.no_wrapup;
+    var noWrapupReasons = {
+      empty_trajectory: '空轨迹',
+      last_event_not_assistant_text: '最后事件不是助手文本',
+      aborted_finish_reason: '结束状态异常'
+    };
+    var noWrapupDetail = noWrapup
+      ? (noWrapupReasons[noWrapup.reason] || noWrapup.reason || '缺少收尾')
+        + (noWrapup.finish_reason ? ' · finish=' + noWrapup.finish_reason : '')
+      : '有明确的助手文本收尾';
+
+    var skipNote = metadata && metadata.attribution_skipped
+      ? '<div class="callout green"><strong>归因已跳过</strong>：结果信号判定为正常结束，且没有达到置信度阈值的发现，因此没有调用归因模型。</div>'
+      : '';
+
+    var recoveredNote = recovered
+      ? '<div class="callout green"><strong>工具错误已恢复</strong>：'
+        + escapeHtml(recoveredDetail) + '。结果信号按正常结束处理。</div>'
+      : '';
+    var normalDetail = signals.normal_end
+      ? (recovered
+        ? '最后一轮以助手文本正常收尾；检测到工具错误，但后续调用已成功'
+        : '最后一轮以助手文本正常收尾，且未检测到异常信号')
+      : '未满足正常结束条件';
+
+    var body = '<div class="basis-row"><span class="muted">判定依据</span>' + basisChips + '</div>'
+      + '<div class="signal-grid">'
+      + signalCard('用户否定 / 重跑', Boolean(rejection.detected), rejectionDetail)
+      + signalCard('结尾工具报错', Boolean(trailing), trailingDetail)
+      + signalCard('空结果', Boolean(empty), emptyDetail)
+      + signalCard('缺少收尾', Boolean(noWrapup), noWrapupDetail)
+      + signalCard('正常结束', Boolean(signals.normal_end), normalDetail, 'good')
+      + '</div>'
+      + recoveredNote
+      + skipNote;
+    var signalTone = signals.verdict === 'failed'
+      ? 'badge-red'
+      : (signals.verdict === 'normal' ? 'badge-green' : 'badge-amber');
+    return panel('结果信号', '<span class="badge ' + signalTone + '">'
+      + escapeHtml(verdictInfo(signals.verdict, signals).label) + '</span>', body);
+  }
+
+  function renderRootSection(report, metadata, eventMap) {
+    var info = rootKindInfo(metadata.root_cause_kind);
+    var attributionRaw = report.attribution && report.attribution.raw;
+    var noFailure = Boolean(attributionRaw && attributionRaw.no_failure);
+    var body;
+    if (report.root_cause_event_id) {
+      var rootEvent = eventMap[report.root_cause_event_id];
+      body = '<div class="root-grid">'
+        + kv('事件 ID', report.root_cause_event_id, true)
+        + kv('Agent', report.root_cause_agent)
+        + kv('Step', report.root_cause_step_index == null ? '—' : '#' + report.root_cause_step_index)
+        + kv('根因类型', info.label)
+        + '</div>';
+      if (rootEvent) {
+        body += '<div class="root-snippet"><div class="label">事件摘要</div>'
+          + '<div class="text-block">' + escapeHtml(eventSnippet(rootEvent) || '（无摘要）') + '</div></div>';
+      }
+    } else {
+      body = '<div class="empty-state">'
+        + (noFailure
+          ? '归因模型认为任务最终已恢复，未选择根因；检测发现仅作为改进参考。'
+          : (metadata.attribution_skipped
+            ? '结果信号判定为正常运行，未选择根因。'
+            : '没有找到达到置信度阈值的根因发现。'))
+        + '</div>';
+    }
+    return panel('根因定位', '<span class="badge ' + info.className + '">' + info.label + '</span>', body);
+  }
+
+  function renderFindingsSection(findings) {
+    var body = findings.length
+      ? '<div class="finding-list">' + findings.map(findingHtml).join('') + '</div>'
+      : '<div class="empty-state">没有检测到失败模式。</div>';
+    return panel('检测发现', '<span class="badge badge-gray">' + findings.length + ' 条</span>', body);
+  }
+
+  function findingHtml(finding) {
+    var fm = finding.failure_mode || {};
+    var metadata = finding.metadata || {};
+    var name = fm.name_zh || fm.name || fm.mode_id || '未知失败模式';
+    var confidence = confidenceOf(finding);
+    var below = Boolean(metadata.below_threshold);
+    var evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
+    var zhSuggestions = Array.isArray(fm.suggestion_templates_zh) ? fm.suggestion_templates_zh : [];
+    var suggestion = zhSuggestions.length ? zhSuggestions[0] : (finding.suggestion || '');
+    var suggestionBlocks = zhSuggestions.length > 1
+      ? '<div class="label">其他建议</div><ul class="evidence">' + zhSuggestions.slice(1).map(function (item) {
+          return '<li><div class="suggestion">' + escapeHtml(item) + '</div></li>';
+        }).join('') + '</ul>'
+      : '';
+    return '<article class="finding-card' + (below ? ' below-threshold' : '') + '">'
+      + '<div class="finding-head"><div><span class="finding-name">' + escapeHtml(name) + '</span> '
+      + '<span class="badge badge-gray mono">' + escapeHtml(fm.mode_id || '') + '</span>'
+      + (below ? ' <span class="badge badge-amber">低于阈值</span>' : '') + '</div>'
+      + '<span class="confidence">' + percent(confidence) + '</span></div>'
+      + '<div class="confidence-bar"><span style="width:' + (confidence * 100).toFixed(1) + '%"></span></div>'
+      + '<div class="finding-meta"><span>step ' + escapeHtml(finding.step_index == null ? '—' : finding.step_index) + '</span>'
+      + '<span>agent ' + escapeHtml(finding.agent_name || '—') + '</span>'
+      + '<span class="mono">' + escapeHtml(finding.event_id || '—') + '</span></div>'
+      + '<div class="label">证据</div>'
+      + (evidence.length
+        ? '<ul class="evidence">' + evidence.map(function (item) {
+            return '<li><pre class="evidence-pre">' + escapeHtml(textValue(item)) + '</pre></li>';
+          }).join('') + '</ul>'
+        : '<div class="muted">—</div>')
+      + (suggestion ? '<div class="label">建议</div><div class="suggestion">' + escapeHtml(suggestion) + '</div>' : '')
+      + suggestionBlocks
+      + '<details class="details"><summary>判定依据</summary><pre>'
+      + escapeHtml(JSON.stringify(metadata, null, 2)) + '</pre></details>'
+      + '</article>';
+  }
+
+  function hypothesisHtml(hypothesis, roleLabel) {
+    hypothesis = hypothesis || {};
+    var hasLocation = hypothesis.span_id || hypothesis.step_index != null || hypothesis.agent_name;
+    var location = hasLocation
+      ? [hypothesis.agent_name ? 'agent ' + hypothesis.agent_name : null,
+         hypothesis.step_index != null ? 'step ' + hypothesis.step_index : null,
+         hypothesis.span_id ? 'span ' + hypothesis.span_id : null].filter(Boolean).join(' · ')
+      : '未定位到具体步骤';
+    var evidence = Array.isArray(hypothesis.evidence) ? hypothesis.evidence : [];
+    var sources = Array.isArray(hypothesis.sources) ? hypothesis.sources : [];
+    var corrected = hypothesis.corrected_action;
+    var correctedHtml = '';
+    if (corrected && typeof corrected === 'object') {
+      correctedHtml = '<div class="label">修正动作</div><div class="kv-grid">'
+        + kv('原始动作', corrected.emitted, true)
+        + kv('建议动作', corrected.requested, true)
+        + kv('原因', corrected.reason)
+        + '</div>';
+    }
+    return '<article class="hypothesis">'
+      + '<div class="hypothesis-head"><span class="hypothesis-role">' + escapeHtml(roleLabel) + '</span>'
+      + '<span class="confidence">' + percent(hypothesis.confidence) + '</span>'
+      + (sources.length ? sources.map(function (source) { return chip('violet', source); }).join('') : '')
+      + '</div>'
+      + '<div class="muted mono" style="font-size:10px;margin-bottom:5px">' + escapeHtml(location) + '</div>'
+      + '<div class="rationale">' + escapeHtml(hypothesis.rationale || '（无归因说明）') + '</div>'
+      + (evidence.length ? '<div class="label">证据</div><ul class="evidence">' + evidence.map(function (item) {
+          return '<li><pre class="evidence-pre">' + escapeHtml(textValue(item)) + '</pre></li>';
+        }).join('') + '</ul>' : '')
+      + correctedHtml
+      + '</article>';
+  }
+
+  function renderAttributionSection(attribution, metadata) {
+    attribution = attribution || {};
+    if (attribution.method === 'skipped' || (metadata && metadata.attribution_skipped)) {
+      return panel('归因', '<span class="badge badge-green">已跳过</span>',
+        '<div class="callout green">结果信号正常且没有可信发现，未调用归因模型。</div>');
+    }
+    var primary = attribution.primary;
+    var hypotheses = Array.isArray(attribution.hypotheses) ? attribution.hypotheses : [];
+    var raw = attribution.raw || {};
+    var body = '';
+    if (raw.no_failure) {
+      body += '<div class="callout green"><strong>归因模型判定：未发生导致任务失败的错误。</strong>'
+        + (raw.no_failure_rationale ? '<br>' + escapeHtml(raw.no_failure_rationale) : '') + '</div>';
+    }
+    if (primary) {
+      body += hypothesisHtml(primary, '主要归因');
+    } else if (!raw.no_failure) {
+      body += '<div class="empty-state">归因模型未给出有效步骤。</div>';
+    }
+    if (hypotheses.length > 1) {
+      body += '<div class="label">全部假设</div><div class="hypothesis-list">'
+        + hypotheses.map(function (item) { return hypothesisHtml(item, '假设'); }).join('') + '</div>';
+    }
+    if (raw.finding_count != null) {
+      body += '<div class="raw-line">参与归因的发现：' + escapeHtml(raw.finding_count) + '</div>';
+    }
+    return panel('归因', '<span class="badge badge-blue mono">' + escapeHtml(attribution.method || 'all_at_once') + '</span>', body);
+  }
+
+  function renderRecoverySection(recovery) {
+    recovery = recovery || {};
+    var proposals = Array.isArray(recovery.proposals) ? recovery.proposals : [];
+    if (!proposals.length) {
+      return panel('恢复建议', '<span class="badge badge-gray">0 条</span>',
+        '<div class="empty-state">没有生成恢复建议。</div>');
+    }
+    var body = proposals.map(function (proposal, index) {
+      var sideEffects = Array.isArray(proposal.side_effects) ? proposal.side_effects : [];
+      return '<article class="proposal"><div class="proposal-head">'
+        + '<span class="proposal-index">#' + (index + 1) + '</span>'
+        + chip('blue', proposal.recoverer_id || 'recoverer')
+        + (proposal.requires_human_approval ? '<span class="badge badge-amber">需要人工确认</span>' : '')
+        + '</div><div class="proposal-summary">' + escapeHtml(proposal.summary || '') + '</div>'
+        + '<div class="label">建议文本</div><pre class="code-block">' + escapeHtml(proposal.suggestion_text || '（空）') + '</pre>'
+        + (sideEffects.length ? '<div class="raw-line">副作用：' + escapeHtml(sideEffects.join(', ')) + '</div>' : '')
+        + '</article>';
+    }).join('');
+    return panel('恢复建议', '<span class="badge badge-violet">' + proposals.length + ' 条</span>', body);
+  }
+
+  // ---- events / init ----------------------------------------------------
+
+  els.search.addEventListener('input', renderSessionList);
+  els.refresh.addEventListener('click', function () {
+    loadHealth();
+    loadSessions();
+  });
+  els.diagnose.addEventListener('click', startDiagnosis);
+  els.viewTabs.addEventListener('click', function (event) {
+    var tab = event.target.closest('[data-view]');
+    if (!tab) return;
+    state.viewPinned = true;
+    setActiveView(tab.getAttribute('data-view'));
+  });
+  els.report.addEventListener('click', function (event) {
+    if (event.target.closest('[data-start-diagnosis]')) startDiagnosis();
+  });
+  els.sessionList.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-session-id]');
+    if (button) selectSession(button.getAttribute('data-session-id'));
+  });
+  els.sessionDetail.addEventListener('click', function (event) {
+    var node = event.target.closest('.trace-node[data-trace-index]');
+    if (node) {
+      focusTraceEvent(Number(node.getAttribute('data-trace-index')));
+      return;
+    }
+    var action = event.target.closest('[data-timeline-action]');
+    if (!action) return;
+    var open = action.getAttribute('data-timeline-action') === 'expand';
+    els.sessionDetail.querySelectorAll('.timeline details.content-details').forEach(function (details) {
+      details.open = open;
+    });
+  });
+  function traceIndexFromEvent(event) {
+    var node = event.target.closest ? event.target.closest('.trace-node[data-trace-index]') : null;
+    return node ? Number(node.getAttribute('data-trace-index')) : null;
+  }
+  els.sessionDetail.addEventListener('mouseover', function (event) {
+    var index = traceIndexFromEvent(event);
+    if (index != null) updateTraceDetail(index);
+  });
+  els.sessionDetail.addEventListener('mouseout', function (event) {
+    if (traceIndexFromEvent(event) != null) resetTraceDetail();
+  });
+  els.sessionDetail.addEventListener('focusin', function (event) {
+    var index = traceIndexFromEvent(event);
+    if (index != null) updateTraceDetail(index);
+  });
+  els.sessionDetail.addEventListener('focusout', function (event) {
+    if (traceIndexFromEvent(event) != null) resetTraceDetail();
+  });
+
+  loadHealth();
+  loadSessions();
+})();
+</script>
+</body>
+</html>

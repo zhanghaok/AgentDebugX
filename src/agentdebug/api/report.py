@@ -58,6 +58,17 @@ def report_to_wire(
     wire_metadata['elapsed_seconds'] = round(float(elapsed_seconds), 2)
     wire_metadata['detector'] = detector
     wire_metadata['attributor'] = attributor
+    # P3/P4 provenance: which deterministic signals drove the verdict, whether
+    # the root cause is agent- or environment-side, and whether attribution was
+    # skipped because the run looked normal.
+    for key in (
+        'root_cause_kind',
+        'outcome_signals',
+        'attribution_skipped',
+        'skip_reason',
+    ):
+        if metadata.get(key) is not None:
+            wire_metadata[key] = metadata[key]
 
     return {
         'report_id': report.report_id,
@@ -95,6 +106,17 @@ def finding_to_wire(finding: Any) -> Dict[str, Any]:
 def attribution_to_wire(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     payload = payload or {}
     raw = payload.get('raw') or {}
+    raw_wire: Dict[str, Any] = {
+        'finding_count': raw.get('finding_count', 0),
+        'ground_truth_context_used': bool(raw.get('ground_truth_context_used', False)),
+        'eval': raw.get('eval'),
+        'corrected_action': _raw_corrected_action(raw.get('corrected_action')),
+    }
+    # P3: the service attributor can explicitly decline to blame a step when
+    # the trajectory recovered. Keep that rationale visible to the browser.
+    for key in ('no_failure', 'no_failure_rationale', 'skipped', 'skip_reason'):
+        if raw.get(key) is not None:
+            raw_wire[key] = raw[key]
     return {
         'method': payload.get('method') or 'all_at_once',
         # Both intranet samples always report 0 here; keep the shape stable.
@@ -103,12 +125,7 @@ def attribution_to_wire(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             _hypothesis_to_wire(item) for item in payload.get('hypotheses') or []
         ],
         'primary': _hypothesis_to_wire(payload.get('primary')),
-        'raw': {
-            'finding_count': raw.get('finding_count', 0),
-            'ground_truth_context_used': bool(raw.get('ground_truth_context_used', False)),
-            'eval': raw.get('eval'),
-            'corrected_action': _raw_corrected_action(raw.get('corrected_action')),
-        },
+        'raw': raw_wire,
     }
 
 

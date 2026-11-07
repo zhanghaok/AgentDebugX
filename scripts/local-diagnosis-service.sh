@@ -2,6 +2,7 @@
 # Local DataAgent diagnosis service lifecycle: start | stop | restart | status | logs.
 #
 # Replica of the intranet AgentDebugX diagnosis service (FastAPI on :7777).
+# Serves a native session/diagnosis console at http://127.0.0.1:7777/.
 # Reads the OpenCode SQLite store of the local dataagent runtime and reuses
 # the DeepSeek credentials from dataagent/.local-dev/config/local.env
 # (GTS_LLM_* -> AGENTDEBUG_LLM_*). Never commit that file.
@@ -13,6 +14,8 @@
 #   DATAAGENT_ENV_FILE  env file   (default $DATAAGENT_HOME/.local-dev/config/local.env)
 #   OPENCODE_DB      SQLite store  (default $DATAAGENT_HOME/.local-dev/runtime/opencode.db)
 #   DIAGNOSIS_PORT   listen port   (default 7777)
+#   AGENTDEBUG_MIN_CONFIDENCE  root-cause threshold (default 0.5)
+#   AGENTDEBUG_LANGUAGE        zh|en prompts     (default zh)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -73,6 +76,7 @@ start() {
   for i in $(seq 1 40); do
     if curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then
       echo "started (pid $(pid_of)) on $BASE_URL"
+      echo "console: $BASE_URL/"
       curl -fsS "$BASE_URL/healthz"; echo
       return 0
     fi
@@ -106,6 +110,7 @@ stop() {
 status() {
   if is_running; then
     echo "running (pid $(pid_of)) on $BASE_URL"
+    echo "console: $BASE_URL/"
     curl -fsS "$BASE_URL/healthz" 2>/dev/null || echo "(healthz unreachable)"
     echo
   else
